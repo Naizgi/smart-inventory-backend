@@ -1,13 +1,14 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# MySQL database URL
-DATABASE_URL = "mysql+pymysql://smartlink:smartlink@localhost/smartlink"
+# Get DB URL from Railway
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 # Create engine
 engine = create_engine(
     DATABASE_URL,
-    echo=True  # Set False in production
+    echo=False  # Turn off in production
 )
 
 # Session
