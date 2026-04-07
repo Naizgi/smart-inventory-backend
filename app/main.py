@@ -7,20 +7,9 @@ from datetime import datetime
 
 # ==================== ROUTES ====================
 from app.routes import (
-    auth_router,
-    branches_router,
-    products_router,
-    users_router,
-    stock_router,
-    sales_router,
-    reports_router,
-    alerts_router,
-    dashboard_router,
-    loan_router,
-    purchase_router,
-    temp_items_router,
     settings_router
 )
+from app.routes import alerts_router, auth_router, branches_router, dashboard_router, loan_router, products_router, purchase_router, reports_router, sales_router, stock_router, temp_items_router, users_router
 
 # ==================== FASTAPI APP ====================
 
