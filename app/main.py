@@ -1,16 +1,19 @@
+# app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, SessionLocal
 from app.config import settings
 from app.services import SettingsService
-from app.models import User  # Make sure this is your User model
-from app.seeders import user_seeder  # Adjust path if needed
+from app.seeders.user_seeder import seed_users  # Import your seeder function
 from datetime import datetime
+import logging
+
+# ==================== LOGGING ====================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ==================== ROUTES ====================
-from app.routes import (
-    settings_router
-)
+from app.routes import settings_router
 from app.routes import (
     alerts_router, auth_router, branches_router, dashboard_router,
     loan_router, products_router, purchase_router, reports_router,
@@ -28,20 +31,21 @@ app = FastAPI(
 @app.on_event("startup")
 def startup():
     # Create all tables
+    logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:
         # Initialize default settings
         SettingsService.initialize_default_settings(db)
-        print("✅ Default settings initialized")
+        logger.info("✅ Default settings initialized")
 
-        # Seed users safely
-        user_seeder.seed(db)
-        print("✅ Users seeded successfully")
+        # Seed users
+        seed_users(db)
+        logger.info("✅ Users seeded successfully")
 
     except Exception as e:
-        print(f"⚠️ Error during startup: {e}")
+        logger.error(f"⚠️ Error during startup: {e}")
     finally:
         db.close()
 
