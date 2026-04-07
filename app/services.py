@@ -17,16 +17,35 @@ import json
 import os
 
 # Password context for hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(
+    schemes=["bcrypt"],
+    deprecated="auto",
+    bcrypt__rounds=12,
+    bcrypt__ident="2b"  # This ensures compatibility
+)
 
 # ==================== AUTH SERVICE ====================
 class AuthService:
     @staticmethod
     def verify_password(plain_password: str, hashed_password: str) -> bool:
-        return pwd_context.verify(plain_password, hashed_password)
+        """Verify a plain password against a hashed password"""
+        try:
+            # Bcrypt has a 72-byte limit - truncate if needed
+            if len(plain_password) > 72:
+                plain_password = plain_password[:72]
+            return pwd_context.verify(plain_password, hashed_password)
+        except Exception as e:
+            print(f"❌ Password verification error: {e}")
+            # If verification fails with error, try to rehash the password
+            # This can happen with old bcrypt formats
+            return False
     
     @staticmethod
     def get_password_hash(password: str) -> str:
+        """Hash a password using bcrypt"""
+        # Bcrypt has a 72-byte limit - truncate if needed
+        if len(password) > 72:
+            password = password[:72]
         return pwd_context.hash(password)
     
     @staticmethod
