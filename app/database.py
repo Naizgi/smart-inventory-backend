@@ -1,14 +1,11 @@
-import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from app.settings import settings  # import your Settings instance
 
-# Get DB URL from Railway
-DATABASE_URL = os.getenv("DATABASE_URL")
-
-# Create engine
+# Use DATABASE_URL from Pydantic settings
 engine = create_engine(
-    DATABASE_URL,
-    echo=False  # Turn off in production
+    settings.DATABASE_URL,  # now it will never be None
+    echo=False,  # Set True for debugging
 )
 
 # Session
@@ -21,7 +18,7 @@ SessionLocal = sessionmaker(
 # Base model
 Base = declarative_base()
 
-# Dependency
+# Dependency for FastAPI
 def get_db():
     db = SessionLocal()
     try:
