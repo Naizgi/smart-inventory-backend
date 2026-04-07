@@ -15,13 +15,12 @@ from app.schemas import (
 )
 import json
 import os
+import bcrypt
 
-# Password context for hashing
+# Password context for hashing - with fallback handling
 pwd_context = CryptContext(
     schemes=["bcrypt"],
-    deprecated="auto",
-    bcrypt__rounds=12,
-    bcrypt__ident="2b"  # This ensures compatibility
+    deprecated="auto"
 )
 
 # ==================== AUTH SERVICE ====================
@@ -33,20 +32,42 @@ class AuthService:
             # Bcrypt has a 72-byte limit - truncate if needed
             if len(plain_password) > 72:
                 plain_password = plain_password[:72]
+            
+            # Try passlib first
             return pwd_context.verify(plain_password, hashed_password)
+            
         except Exception as e:
-            print(f"❌ Password verification error: {e}")
-            # If verification fails with error, try to rehash the password
-            # This can happen with old bcrypt formats
-            return False
+            print(f"❌ Passlib verification failed: {e}")
+            # Fallback to direct bcrypt
+            try:
+                return bcrypt.checkpw(
+                    plain_password.encode('utf-8'),
+                    hashed_password.encode('utf-8')
+                )
+            except Exception as be:
+                print(f"❌ Bcrypt fallback also failed: {be}")
+                return False
     
     @staticmethod
     def get_password_hash(password: str) -> str:
         """Hash a password using bcrypt"""
-        # Bcrypt has a 72-byte limit - truncate if needed
-        if len(password) > 72:
-            password = password[:72]
-        return pwd_context.hash(password)
+        try:
+            # Bcrypt has a 72-byte limit - truncate if needed
+            if len(password) > 72:
+                password = password[:72]
+            
+            # Try passlib first
+            return pwd_context.hash(password)
+            
+        except Exception as e:
+            print(f"❌ Passlib hash failed: {e}")
+            # Fallback to direct bcrypt
+            try:
+                salt = bcrypt.gensalt()
+                return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
+            except Exception as be:
+                print(f"❌ Bcrypt fallback also failed: {be}")
+                raise
     
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -63,8 +84,15 @@ class AuthService:
     @staticmethod
     def authenticate_user(db: Session, email: str, password: str) -> Optional[User]:
         user = db.query(User).filter(User.email == email).first()
-        if not user or not AuthService.verify_password(password, user.password_hash):
+        if not user:
             return None
+        
+        if not AuthService.verify_password(password, user.password_hash):
+            return None
+        
+        if not user.active:
+            return None
+            
         return user
     
     @staticmethod
