@@ -167,7 +167,7 @@ def generate_order_number():
 # POST - Create purchase order (handle both with and without trailing slash)
 @router.post("/orders", response_model=PurchaseOrderResponse)   # No trailing slash
 @router.post("/orders/", response_model=PurchaseOrderResponse)  # With trailing slash
-def create_purchase_order(  # Removed 'async' keyword
+def create_purchase_order(
     purchase_data: PurchaseOrderCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -284,7 +284,7 @@ def create_purchase_order(  # Removed 'async' keyword
 # GET - Get all purchase orders (handle both with and without trailing slash)
 @router.get("/orders", response_model=List[PurchaseOrderResponse])   # No trailing slash
 @router.get("/orders/", response_model=List[PurchaseOrderResponse])  # With trailing slash
-def get_purchase_orders(  # Removed 'async' keyword
+def get_purchase_orders(
     supplier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     from_date: Optional[date] = Query(None),
@@ -366,7 +366,7 @@ def get_purchase_orders(  # Removed 'async' keyword
 
 # GET by ID
 @router.get("/orders/{order_id}", response_model=PurchaseOrderResponse)
-def get_purchase_order(  # Removed 'async' keyword
+def get_purchase_order(
     order_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -427,7 +427,7 @@ def get_purchase_order(  # Removed 'async' keyword
 
 # POST receive
 @router.post("/orders/{order_id}/receive")
-def receive_purchase_order(  # Removed 'async' keyword
+def receive_purchase_order(
     order_id: int,
     receive_data: ReceivePurchaseOrder,
     db: Session = Depends(get_db),
@@ -563,7 +563,7 @@ def receive_purchase_order(  # Removed 'async' keyword
 
 # PUT update
 @router.put("/orders/{order_id}", response_model=PurchaseOrderResponse)
-def update_purchase_order(  # Removed 'async' keyword
+def update_purchase_order(
     order_id: int,
     update_data: PurchaseOrderUpdate,
     db: Session = Depends(get_db),
@@ -637,9 +637,10 @@ def update_purchase_order(  # Removed 'async' keyword
 
 # ==================== REPORTS ROUTE ====================
 
-# GET reports
-@router.get("/reports")
-def get_purchase_report(  # Removed 'async' keyword
+# GET reports (handle both with and without trailing slash)
+@router.get("/reports")   # No slash - /api/purchases/reports
+@router.get("/reports/")  # With slash - /api/purchases/reports/
+def get_purchase_report(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
