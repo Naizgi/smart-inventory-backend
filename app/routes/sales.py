@@ -12,7 +12,9 @@ from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
-@router.post("/", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)
+# POST - Create sale (handle both with and without trailing slash)
+@router.post("", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)   # No slash - /api/sales
+@router.post("/", response_model=SaleSchema, status_code=status.HTTP_201_CREATED)  # With slash - /api/sales/
 def create_sale(
     sale_data: SaleCreate,
     db: Session = Depends(get_db),
@@ -180,8 +182,9 @@ def create_sale(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-
-@router.get("/", response_model=List[SaleSchema])
+# GET - Get all sales (handle both with and without trailing slash)
+@router.get("", response_model=List[SaleSchema])   # No slash - /api/sales
+@router.get("/", response_model=List[SaleSchema])  # With slash - /api/sales/
 def get_sales(
     branch_id: Optional[int] = None,
     start_date: Optional[datetime] = None,
@@ -240,7 +243,7 @@ def get_sales(
     
     return result
 
-
+# GET by ID - no change needed (already has slash before ID)
 @router.get("/{sale_id}", response_model=SaleSchema)
 def get_sale(
     sale_id: int,

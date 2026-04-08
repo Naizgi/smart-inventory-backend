@@ -14,7 +14,9 @@ class SettingsUpdateRequest(BaseModel):
 
 # ==================== GENERAL SETTINGS ====================
 
-@router.get("/general")
+# GET - General settings (handle both with and without trailing slash)
+@router.get("/general")   # No slash - /api/settings/general
+@router.get("/general/")  # With slash - /api/settings/general/
 def get_general_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -26,7 +28,9 @@ def get_general_settings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/general")
+# PUT - General settings (handle both with and without trailing slash)
+@router.put("/general")   # No slash - /api/settings/general
+@router.put("/general/")  # With slash - /api/settings/general/
 def update_general_settings(
     data: SettingsUpdateRequest,
     db: Session = Depends(get_db),
@@ -41,7 +45,9 @@ def update_general_settings(
 
 # ==================== NOTIFICATION SETTINGS ====================
 
-@router.get("/notifications")
+# GET - Notification settings (handle both with and without trailing slash)
+@router.get("/notifications")   # No slash - /api/settings/notifications
+@router.get("/notifications/")  # With slash - /api/settings/notifications/
 def get_notification_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -53,7 +59,9 @@ def get_notification_settings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/notifications")
+# PUT - Notification settings (handle both with and without trailing slash)
+@router.put("/notifications")   # No slash - /api/settings/notifications
+@router.put("/notifications/")  # With slash - /api/settings/notifications/
 def update_notification_settings(
     data: SettingsUpdateRequest,
     db: Session = Depends(get_db),
@@ -68,7 +76,9 @@ def update_notification_settings(
 
 # ==================== BACKUP SETTINGS ====================
 
-@router.get("/backup")
+# GET - Backup settings (handle both with and without trailing slash)
+@router.get("/backup")   # No slash - /api/settings/backup
+@router.get("/backup/")  # With slash - /api/settings/backup/
 def get_backup_settings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -80,7 +90,9 @@ def get_backup_settings(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.put("/backup")
+# PUT - Backup settings (handle both with and without trailing slash)
+@router.put("/backup")   # No slash - /api/settings/backup
+@router.put("/backup/")  # With slash - /api/settings/backup/
 def update_backup_settings(
     data: SettingsUpdateRequest,
     db: Session = Depends(get_db),
@@ -95,7 +107,9 @@ def update_backup_settings(
 
 # ==================== BACKUP MANAGEMENT ====================
 
-@router.post("/backup/create")
+# POST - Create backup (handle both with and without trailing slash)
+@router.post("/backup/create")   # No slash - /api/settings/backup/create
+@router.post("/backup/create/")  # With slash - /api/settings/backup/create/
 def create_backup(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -107,7 +121,9 @@ def create_backup(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/backups")
+# GET - Get backups list (handle both with and without trailing slash)
+@router.get("/backups")   # No slash - /api/settings/backups
+@router.get("/backups/")  # With slash - /api/settings/backups/
 def get_backups(
     limit: int = Query(10, ge=1, le=50),
     db: Session = Depends(get_db),
@@ -120,6 +136,7 @@ def get_backups(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# DELETE by ID - no change needed (already has slash before ID)
 @router.delete("/backups/{backup_id}")
 def delete_backup(
     backup_id: int,
@@ -139,7 +156,9 @@ def delete_backup(
 
 # ==================== CACHE MANAGEMENT ====================
 
-@router.post("/cache/clear")
+# POST - Clear cache (handle both with and without trailing slash)
+@router.post("/cache/clear")   # No slash - /api/settings/cache/clear
+@router.post("/cache/clear/")  # With slash - /api/settings/cache/clear/
 def clear_cache(
     current_user: User = Depends(require_admin)
 ):
@@ -152,7 +171,9 @@ def clear_cache(
 
 # ==================== SYSTEM INFORMATION ====================
 
-@router.get("/system/info")
+# GET - System info (handle both with and without trailing slash)
+@router.get("/system/info")   # No slash - /api/settings/system/info
+@router.get("/system/info/")  # With slash - /api/settings/system/info/
 def get_system_info(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -166,7 +187,9 @@ def get_system_info(
 
 # ==================== DATA MANAGEMENT ====================
 
-@router.post("/system/reset")
+# POST - Reset system data (handle both with and without trailing slash)
+@router.post("/system/reset")   # No slash - /api/settings/system/reset
+@router.post("/system/reset/")  # With slash - /api/settings/system/reset/
 def reset_system_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)
@@ -178,7 +201,9 @@ def reset_system_data(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/system/export")
+# POST - Export data (handle both with and without trailing slash)
+@router.post("/system/export")   # No slash - /api/settings/system/export
+@router.post("/system/export/")  # With slash - /api/settings/system/export/
 def export_all_data(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin)

@@ -30,7 +30,10 @@ from app.utils.dependencies import require_admin
 router = APIRouter(prefix="/api/purchases", tags=["Purchases"])
 
 # ==================== LEGACY PURCHASE ROUTES ====================
-@router.post("/", response_model=PurchaseSchema)
+
+# POST - Create purchase (handle both with and without trailing slash)
+@router.post("", response_model=PurchaseSchema)   # No slash - /api/purchases
+@router.post("/", response_model=PurchaseSchema)  # With slash - /api/purchases/
 def create_purchase(
     purchase_data: PurchaseCreate,
     db: Session = Depends(get_db),
@@ -108,7 +111,9 @@ def create_purchase(
     
     return PurchaseSchema.model_validate(purchase)
 
-@router.get("/", response_model=List[PurchaseSchema])
+# GET - Get all purchases (handle both with and without trailing slash)
+@router.get("", response_model=List[PurchaseSchema])   # No slash - /api/purchases
+@router.get("/", response_model=List[PurchaseSchema])  # With slash - /api/purchases/
 def get_purchases(
     supplier: Optional[str] = Query(None),
     from_date: Optional[date] = Query(None),
@@ -141,7 +146,9 @@ def get_purchases(
 def generate_order_number():
     return f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
-@router.post("/orders", response_model=PurchaseOrderResponse)
+# POST - Create purchase order (handle both with and without trailing slash)
+@router.post("/orders", response_model=PurchaseOrderResponse)   # No trailing slash
+@router.post("/orders/", response_model=PurchaseOrderResponse)  # With trailing slash
 async def create_purchase_order(
     purchase_data: PurchaseOrderCreate,
     db: Session = Depends(get_db),
@@ -235,7 +242,9 @@ async def create_purchase_order(
         "items": items_response
     }
 
-@router.get("/orders", response_model=List[PurchaseOrderResponse])
+# GET - Get all purchase orders (handle both with and without trailing slash)
+@router.get("/orders", response_model=List[PurchaseOrderResponse])   # No trailing slash
+@router.get("/orders/", response_model=List[PurchaseOrderResponse])  # With trailing slash
 async def get_purchase_orders(
     supplier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -309,6 +318,7 @@ async def get_purchase_orders(
     
     return result
 
+# GET by ID - no change needed (already has slash before ID)
 @router.get("/orders/{order_id}", response_model=PurchaseOrderResponse)
 async def get_purchase_order(
     order_id: int,
@@ -359,6 +369,8 @@ async def get_purchase_order(
         "updated_at": order.updated_at,
         "items": items_response
     }
+
+# POST receive - no change needed (has slash before ID)
 @router.post("/orders/{order_id}/receive")
 async def receive_purchase_order(
     order_id: int,
@@ -493,7 +505,8 @@ async def receive_purchase_order(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-        
+
+# PUT update - no change needed (has slash before ID)
 @router.put("/orders/{order_id}", response_model=PurchaseOrderResponse)
 async def update_purchase_order(
     order_id: int,
@@ -560,6 +573,7 @@ async def update_purchase_order(
 
 # ==================== REPORTS ROUTE ====================
 
+# GET reports - no slash needed (different path)
 @router.get("/reports")
 async def get_purchase_report(
     from_date: Optional[date] = Query(None),

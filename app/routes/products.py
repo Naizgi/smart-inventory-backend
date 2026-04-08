@@ -10,7 +10,9 @@ from app.models import User
 router = APIRouter(prefix="/api/products", tags=["Products"])
 
 # ✅ READ operations - Any authenticated user (no admin required)
-@router.get("/", response_model=List[Product])
+# GET - Get all products (handle both with and without trailing slash)
+@router.get("", response_model=List[Product])   # No slash - /api/products
+@router.get("/", response_model=List[Product])  # With slash - /api/products/
 def get_products(
     active: Optional[bool] = Query(True),
     branch_id: Optional[int] = None,
@@ -20,6 +22,7 @@ def get_products(
     """Get all products - Any authenticated user"""
     return ProductService.get_products(db, active, branch_id)
 
+# GET by ID - no change needed (already has slash before ID)
 @router.get("/{product_id}", response_model=Product)
 def get_product(
     product_id: int,
@@ -33,7 +36,9 @@ def get_product(
     return product
 
 # ✏️ WRITE operations - Admin only
-@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)
+# POST - Create product (handle both with and without trailing slash)
+@router.post("", response_model=Product, status_code=status.HTTP_201_CREATED)   # No slash - /api/products
+@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)  # With slash - /api/products/
 def create_product(
     product: ProductCreate,
     db: Session = Depends(get_db),
@@ -45,6 +50,7 @@ def create_product(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+# PUT by ID - no change needed
 @router.put("/{product_id}", response_model=Product)
 def update_product(
     product_id: int,
@@ -58,6 +64,7 @@ def update_product(
         raise HTTPException(status_code=404, detail="Product not found")
     return updated_product
 
+# DELETE by ID - no change needed
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_product(
     product_id: int,

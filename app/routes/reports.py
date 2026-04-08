@@ -13,7 +13,9 @@ from app.models import (
 
 router = APIRouter(prefix="/api/reports", tags=["Reports"])
 
-@router.get("/sales")
+# GET - Sales report (handle both with and without trailing slash)
+@router.get("/sales")   # No slash - /api/reports/sales
+@router.get("/sales/")  # With slash - /api/reports/sales/
 def sales_report(
     report_type: str = Query(..., regex="^(weekly|monthly)$"),
     branch_id: Optional[int] = None,
@@ -164,7 +166,9 @@ def sales_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/purchases")
+# GET - Purchase report (handle both with and without trailing slash)
+@router.get("/purchases")   # No slash - /api/reports/purchases
+@router.get("/purchases/")  # With slash - /api/reports/purchases/
 def purchase_report(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
@@ -277,7 +281,9 @@ def purchase_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/loans")
+# GET - Loan report (handle both with and without trailing slash)
+@router.get("/loans")   # No slash - /api/reports/loans
+@router.get("/loans/")  # With slash - /api/reports/loans/
 def loan_report(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
@@ -392,7 +398,9 @@ def loan_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/profit-loss")
+# GET - Profit/Loss report (handle both with and without trailing slash)
+@router.get("/profit-loss")   # No slash - /api/reports/profit-loss
+@router.get("/profit-loss/")  # With slash - /api/reports/profit-loss/
 def profit_loss_report(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
@@ -511,7 +519,9 @@ def profit_loss_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/inventory-valuation")
+# GET - Inventory valuation report (handle both with and without trailing slash)
+@router.get("/inventory-valuation")   # No slash
+@router.get("/inventory-valuation/")  # With slash
 def inventory_valuation_report(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
@@ -553,7 +563,9 @@ def inventory_valuation_report(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/dashboard-summary")
+# GET - Dashboard summary (handle both with and without trailing slash)
+@router.get("/dashboard-summary")   # No slash
+@router.get("/dashboard-summary/")  # With slash
 def dashboard_summary(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
@@ -626,8 +638,10 @@ def dashboard_summary(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-@router.get("/financial-summary")
+
+# GET - Financial summary (handle both with and without trailing slash)
+@router.get("/financial-summary")   # No slash
+@router.get("/financial-summary/")  # With slash
 async def get_financial_summary(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
@@ -684,12 +698,14 @@ async def get_financial_summary(
         "revenue_trend": 12.5  # You can calculate this by comparing with previous period
     }
 
-@router.get("/comparison")
+# GET - Comparison report (handle both with and without trailing slash)
+@router.get("/comparison")   # No slash
+@router.get("/comparison/")  # With slash
 async def get_comparison(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user = Depends(require_admin)
 ):
     """Get period comparison data"""
     
@@ -718,12 +734,14 @@ async def get_comparison(
         "total_transactions": len(sales)
     }
 
-@router.get("/daily-revenue")
+# GET - Daily revenue report (handle both with and without trailing slash)
+@router.get("/daily-revenue")   # No slash
+@router.get("/daily-revenue/")  # With slash
 async def get_daily_revenue(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user = Depends(require_admin)
 ):
     """Get daily revenue for the last 7 days"""
     
@@ -748,13 +766,15 @@ async def get_daily_revenue(
     
     return results
 
-@router.get("/top-products")
+# GET - Top products report (handle both with and without trailing slash)
+@router.get("/top-products")   # No slash
+@router.get("/top-products/")  # With slash
 async def get_top_products(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
     limit: int = Query(5),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)
+    current_user = Depends(require_admin)
 ):
     """Get top selling products"""
     

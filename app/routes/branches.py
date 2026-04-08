@@ -11,7 +11,9 @@ from app.models import User, Stock, Sale, Branch as BranchModel
 
 router = APIRouter(prefix="/api/branches", tags=["Branches"])
 
-@router.post("/", response_model=Branch, status_code=status.HTTP_201_CREATED)
+# POST - Create branch (handle both with and without trailing slash)
+@router.post("", response_model=Branch, status_code=status.HTTP_201_CREATED)   # No slash - /api/branches
+@router.post("/", response_model=Branch, status_code=status.HTTP_201_CREATED)  # With slash - /api/branches/
 def create_branch(
     branch: BranchCreate,
     db: Session = Depends(get_db),
@@ -20,7 +22,9 @@ def create_branch(
     """Create a new branch (Admin only)"""
     return BranchService.create_branch(db, branch)
 
-@router.get("/", response_model=List[Branch])
+# GET - Get all branches (handle both with and without trailing slash)
+@router.get("", response_model=List[Branch])   # No slash - /api/branches
+@router.get("/", response_model=List[Branch])  # With slash - /api/branches/
 def get_branches(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
@@ -28,6 +32,7 @@ def get_branches(
     """Get all branches"""
     return BranchService.get_branches(db)
 
+# GET by ID - no change needed (always has slash before ID)
 @router.get("/{branch_id}", response_model=Branch)
 def get_branch(
     branch_id: int,
@@ -40,6 +45,7 @@ def get_branch(
         raise HTTPException(status_code=404, detail="Branch not found")
     return branch
 
+# PUT by ID - no change needed
 @router.put("/{branch_id}", response_model=Branch)
 def update_branch(
     branch_id: int,
@@ -53,6 +59,7 @@ def update_branch(
         raise HTTPException(status_code=404, detail="Branch not found")
     return updated_branch
 
+# DELETE by ID - no change needed
 @router.delete("/{branch_id}")
 def delete_branch(
     branch_id: int,
@@ -73,6 +80,7 @@ def delete_branch(
     db.commit()
     return {"message": "Branch deleted successfully"}
 
+# GET stats - no slash needed (different path)
 @router.get("/stats")
 def get_branch_stats(
     db: Session = Depends(get_db),

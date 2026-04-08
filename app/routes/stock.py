@@ -11,6 +11,7 @@ from app.utils.dependencies import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/stock", tags=["Stock"])
 
+# GET by branch ID - no change needed (has slash before ID)
 @router.get("/{branch_id}")
 def get_branch_stock(
     branch_id: int,
@@ -69,7 +70,9 @@ def get_branch_stock(
         print(f"Error in get_branch_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/", response_model=List[StockResponse])
+# GET - Get my branch stock (handle both with and without trailing slash)
+@router.get("", response_model=List[StockResponse])   # No slash - /api/stock
+@router.get("/", response_model=List[StockResponse])  # With slash - /api/stock/
 def get_my_branch_stock(
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
@@ -120,7 +123,9 @@ def get_my_branch_stock(
         print(f"Error in get_my_branch_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/{branch_id}/{product_id}/add")
+# POST - Add stock (handle both with and without trailing slash for the path)
+@router.post("/{branch_id}/{product_id}/add")   # No trailing slash
+@router.post("/{branch_id}/{product_id}/add/")  # With trailing slash
 def add_stock(
     branch_id: int,
     product_id: int,
@@ -186,7 +191,9 @@ def add_stock(
         print(f"Error in add_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/initialize/{branch_id}")
+# POST - Initialize branch stock (handle both with and without trailing slash)
+@router.post("/initialize/{branch_id}")   # No trailing slash
+@router.post("/initialize/{branch_id}/")  # With trailing slash
 def initialize_branch_stock(
     branch_id: int,
     db: Session = Depends(get_db),

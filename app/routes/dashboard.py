@@ -7,7 +7,9 @@ from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
-@router.get("/")
+# GET dashboard - handle both with and without trailing slash
+@router.get("")   # No slash - /api/dashboard
+@router.get("/")  # With slash - /api/dashboard/
 def get_dashboard(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)

@@ -14,7 +14,9 @@ router = APIRouter(prefix="/api/temp-items", tags=["Temporary Items"])
 def generate_item_number():
     return f"TMP-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
-@router.post("/", response_model=TempItemResponse)
+# POST - Register temp item (handle both with and without trailing slash)
+@router.post("", response_model=TempItemResponse)   # No slash - /api/temp-items
+@router.post("/", response_model=TempItemResponse)  # With slash - /api/temp-items/
 def register_temp_item(
     item_data: TempItemCreate,
     db: Session = Depends(get_db),
@@ -58,7 +60,9 @@ def register_temp_item(
         "received_at": None
     }
 
-@router.get("/", response_model=List[TempItemResponse])
+# GET - Get temp items (handle both with and without trailing slash)
+@router.get("", response_model=List[TempItemResponse])   # No slash - /api/temp-items
+@router.get("/", response_model=List[TempItemResponse])  # With slash - /api/temp-items/
 def get_temp_items(
     status: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
@@ -110,6 +114,7 @@ def get_temp_items(
     
     return result
 
+# PUT - Receive temp item (no change needed - has slash before ID)
 @router.put("/{item_id}/receive")
 def receive_temp_item(
     item_id: int,
@@ -136,6 +141,7 @@ def receive_temp_item(
     
     return {"message": "Item marked as received successfully", "item_id": item.id}
 
+# PUT - Cancel temp item (no change needed - has slash before ID)
 @router.put("/{item_id}/cancel")
 def cancel_temp_item(
     item_id: int,

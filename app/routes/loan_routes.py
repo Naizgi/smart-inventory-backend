@@ -21,6 +21,8 @@ def generate_loan_number():
 def generate_payment_number():
     return f"PMT-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
+# POST - Create loan (handle both with and without trailing slash)
+@router.post("", response_model=LoanResponse)
 @router.post("/", response_model=LoanResponse)
 async def create_loan(
     loan_data: LoanCreate,
@@ -176,6 +178,8 @@ async def create_loan(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
+# GET - Get all loans (handle both with and without trailing slash)
+@router.get("", response_model=List[LoanResponse])
 @router.get("/", response_model=List[LoanResponse])
 async def get_loans(
     customer_name: Optional[str] = Query(None),
@@ -262,6 +266,7 @@ async def get_loans(
     
     return result
 
+# GET by ID - no change needed
 @router.get("/{loan_id}", response_model=LoanResponse)
 async def get_loan(
     loan_id: int,
@@ -343,7 +348,7 @@ async def add_loan_payment(
     loan_id: int,
     payment_data: LoanPaymentCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)  # Now both admin and salesman can record payments
+    current_user: User = Depends(get_current_user)
 ):
     """Add a payment to a loan (Both Admin and Salesman can record payments for their branch)"""
     
@@ -413,7 +418,7 @@ async def settle_loan(
     loan_id: int,
     settle_data: LoanSettleRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)  # Now both admin and salesman can settle loans
+    current_user: User = Depends(get_current_user)
 ):
     """Settle a loan completely (Both Admin and Salesman can settle loans for their branch)"""
     
