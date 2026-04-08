@@ -8,7 +8,9 @@ from app.utils.dependencies import require_admin
 
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
-@router.get("/", response_model=List[AlertResponse])
+# Handle BOTH with and without trailing slash
+@router.get("")  # No trailing slash
+@router.get("/")  # With trailing slash
 def get_alerts(
     resolved: bool = Query(False),
     branch_id: Optional[int] = None,
@@ -30,9 +32,6 @@ def resolve_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     return {"message": "Alert resolved successfully"}
-
-
-
 
 @router.post("/check-low-stock")
 def check_low_stock_manual(
