@@ -1,9 +1,23 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from app.config import settings  # <-- use the Pydantic settings
+from sqlalchemy.pool import QueuePool
+from app.config import settings
+import time
+import logging
 
-# Use DATABASE_URL from settings
-engine = create_engine(settings.DATABASE_URL, echo=False)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Configure engine with connection pooling settings
+engine = create_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_size=5,              # Number of connections to keep open
+    max_overflow=10,          # Extra connections beyond pool_size
+    pool_timeout=30,          # Seconds to wait for a connection
+    pool_recycle=3600,        # Recycle connections after 1 hour (MySQL default timeout is 8 hours)
+    pool_pre_ping=True        # Verify connections before using
+)
 
 SessionLocal = sessionmaker(
     autocommit=False,
@@ -13,10 +27,44 @@ SessionLocal = sessionmaker(
 
 Base = declarative_base()
 
-# Dependency
+# Dependency with retry logic for database connection issues
 def get_db():
-    db = SessionLocal()
+    max_retries = 3
+    retry_delay = 1  # seconds
+    
+    for attempt in range(max_retries):
+        db = None
+        try:
+            db = SessionLocal()
+            # Test the connection
+            db.execute("SELECT 1")
+            logger.info(f"Database connection successful (attempt {attempt + 1})")
+            yield db
+            break  # Success, exit retry loop
+            
+        except Exception as e:
+            logger.error(f"Database connection error (attempt {attempt + 1}/{max_retries}): {e}")
+            if db:
+                db.rollback()
+                db.close()
+            
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+                retry_delay *= 2  # Exponential backoff
+            else:
+                logger.error("Max retries reached, failing...")
+                raise
+        finally:
+            if db:
+                db.close()
+
+# Optional: Function to check database health
+def check_db_health():
     try:
-        yield db
-    finally:
+        db = SessionLocal()
+        db.execute("SELECT 1")
         db.close()
+        return True
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return False

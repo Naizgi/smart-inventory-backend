@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+import os
 
 class Settings(BaseSettings):
     # MySQL Database Configuration
@@ -7,11 +8,18 @@ class Settings(BaseSettings):
     DB_USER: str = "root"
     DB_PASSWORD: str = "password"
     DB_NAME: str = "inventory_db"
+    
+    # Connection Pool Settings
+    DB_POOL_SIZE: int = 5
+    DB_MAX_OVERFLOW: int = 10
+    DB_POOL_TIMEOUT: int = 30
+    DB_POOL_RECYCLE: int = 3600
+    DB_POOL_PRE_PING: bool = True
 
     # Construct DATABASE_URL dynamically
     @property
     def DATABASE_URL(self) -> str:
-        return f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        return f"mysql+pymysql://{self.DB_USER}:{self.DB_PASSWORD}@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}?charset=utf8mb4"
 
     # Security
     SECRET_KEY: str = "your-secret-key-change-this"
@@ -27,5 +35,4 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
 
-# Single instance to use throughout the app
 settings = Settings()
