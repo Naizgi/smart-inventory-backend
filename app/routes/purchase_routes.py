@@ -256,63 +256,76 @@ def get_purchase_orders(
     current_user: User = Depends(require_admin)
 ):
     """Get all purchase orders"""
-    query = db.query(PurchaseOrder)
     
-    if supplier:
-        query = query.filter(PurchaseOrder.supplier.ilike(f"%{supplier}%"))
-    if status:
-        query = query.filter(PurchaseOrder.status == status)
-    if from_date:
-        start_date = datetime.combine(from_date, datetime.min.time())
-        query = query.filter(PurchaseOrder.order_date >= start_date)
-    if to_date:
-        end_date = datetime.combine(to_date, datetime.max.time())
-        query = query.filter(PurchaseOrder.order_date <= end_date)
-    
-    orders = query.order_by(PurchaseOrder.order_date.desc()).offset(skip).limit(limit).all()
-    
-    result = []
-    for order in orders:
-        creator = db.query(User).filter(User.id == order.created_by).first()
-        creator_name = creator.name if creator else "System"
+    try:
+        # Build query
+        query = db.query(PurchaseOrder)
         
-        items_response = []
-        for item in order.items:
-            product = db.query(Product).filter(Product.id == item.product_id).first()
-            items_response.append({
-                "id": item.id,
-                "product_id": item.product_id,
-                "product_name": product.name if product else None,
-                "quantity_ordered": float(item.quantity_ordered),
-                "unit_cost": float(item.unit_cost),
-                "notes": item.notes,
-                "quantity_received": float(item.quantity_received),
-                "total_cost": float(item.total_cost),
-                "received_at": item.received_at
+        if supplier:
+            query = query.filter(PurchaseOrder.supplier.ilike(f"%{supplier}%"))
+        if status:
+            query = query.filter(PurchaseOrder.status == status)
+        if from_date:
+            start_date = datetime.combine(from_date, datetime.min.time())
+            query = query.filter(PurchaseOrder.order_date >= start_date)
+        if to_date:
+            end_date = datetime.combine(to_date, datetime.max.time())
+            query = query.filter(PurchaseOrder.order_date <= end_date)
+        
+        # Execute query
+        orders = query.order_by(PurchaseOrder.order_date.desc()).offset(skip).limit(limit).all()
+        
+        # Build response without lazy loading issues
+        result = []
+        for order in orders:
+            # Get creator name
+            creator = db.query(User).filter(User.id == order.created_by).first()
+            creator_name = creator.name if creator else "System"
+            
+            # Build items response
+            items_response = []
+            for item in order.items:
+                product = db.query(Product).filter(Product.id == item.product_id).first()
+                items_response.append({
+                    "id": item.id,
+                    "product_id": item.product_id,
+                    "product_name": product.name if product else None,
+                    "quantity_ordered": float(item.quantity_ordered),
+                    "unit_cost": float(item.unit_cost),
+                    "notes": item.notes,
+                    "quantity_received": float(item.quantity_received),
+                    "total_cost": float(item.total_cost),
+                    "received_at": item.received_at
+                })
+            
+            result.append({
+                "id": order.id,
+                "order_number": order.order_number,
+                "branch_id": order.branch_id,
+                "supplier": order.supplier,
+                "expected_delivery_date": order.expected_delivery_date,
+                "order_date": order.order_date,
+                "actual_delivery_date": order.actual_delivery_date,
+                "status": order.status,
+                "subtotal": float(order.subtotal),
+                "tax_amount": float(order.tax_amount),
+                "shipping_cost": float(order.shipping_cost),
+                "discount_amount": float(order.discount_amount),
+                "total_amount": float(order.total_amount),
+                "notes": order.notes,
+                "created_by": creator_name,
+                "created_at": order.created_at,
+                "updated_at": order.updated_at,
+                "items": items_response
             })
         
-        result.append({
-            "id": order.id,
-            "order_number": order.order_number,
-            "branch_id": order.branch_id,
-            "supplier": order.supplier,
-            "expected_delivery_date": order.expected_delivery_date,
-            "order_date": order.order_date,
-            "actual_delivery_date": order.actual_delivery_date,
-            "status": order.status,
-            "subtotal": float(order.subtotal),
-            "tax_amount": float(order.tax_amount),
-            "shipping_cost": float(order.shipping_cost),
-            "discount_amount": float(order.discount_amount),
-            "total_amount": float(order.total_amount),
-            "notes": order.notes,
-            "created_by": creator_name,
-            "created_at": order.created_at,
-            "updated_at": order.updated_at,
-            "items": items_response
-        })
-    
-    return result
+        return result
+        
+    except Exception as e:
+        print(f"Error in get_purchase_orders: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Error fetching purchase orders: {str(e)}")
 
 @router.get("/orders/{order_id}", response_model=PurchaseOrderResponse)
 def get_purchase_order(
