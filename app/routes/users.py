@@ -5,7 +5,7 @@ from app.database import get_db
 from app.services import AuthService
 from app.models import User as UserModel
 from app.schemas import User, UserCreate, UserUpdate, UserProfileUpdate
-from app.utils.dependencies import require_admin, get_current_user  # Add get_current_user here
+from app.utils.dependencies import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
@@ -34,7 +34,9 @@ def create_user(
     db.refresh(db_user)
     return db_user
 
-@router.get("/", response_model=List[User])
+# FIXED: Added both decorators
+@router.get("", response_model=List[User])   # Handles /api/users
+@router.get("/", response_model=List[User])  # Handles /api/users/
 def get_users(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
@@ -98,13 +100,12 @@ def delete_user(
     db.commit()
     return None
 
-
 # ==================== CURRENT USER ENDPOINTS ====================
 
 @router.get("/me", response_model=User)
 def get_current_user_profile(
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  # Now get_current_user is imported
+    current_user = Depends(get_current_user)
 ):
     """Get current user profile (Any authenticated user)"""
     return current_user
@@ -113,7 +114,7 @@ def get_current_user_profile(
 def update_current_user_profile(
     user_update: UserProfileUpdate,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  # Now get_current_user is imported
+    current_user = Depends(get_current_user)
 ):
     """Update current user profile (Any authenticated user)"""
     update_data = user_update.dict(exclude_unset=True)
@@ -130,7 +131,7 @@ def update_current_user_profile(
 def change_password(
     password_data: dict,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  # Now get_current_user is imported
+    current_user = Depends(get_current_user)
 ):
     """Change current user password"""
     current_password = password_data.get("current_password")
