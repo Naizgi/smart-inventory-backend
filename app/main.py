@@ -1,12 +1,10 @@
 # app/main.py
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
-from starlette.middleware.base import BaseHTTPMiddleware
 from app.database import engine, Base, SessionLocal
 from app.config import settings
 from app.services import SettingsService
-from app.seeders.user_seeder import seed_users
+from app.seeders.user_seeder import seed_users  # Import your seeder function
 from datetime import datetime
 import logging
 
@@ -28,25 +26,6 @@ app = FastAPI(
     version=settings.APP_VERSION,
     debug=settings.DEBUG
 )
-
-# ==================== TRAILING SLASH MIDDLEWARE ====================
-@app.middleware("http")
-async def remove_trailing_slash(request, call_next):
-    """Remove trailing slash from URLs to avoid 307 redirects"""
-    path = request.url.path
-    
-    # Skip for root path and API docs
-    if path == "/" or path.startswith("/docs") or path.startswith("/redoc") or path.startswith("/openapi"):
-        return await call_next(request)
-    
-    # Remove trailing slash if present
-    if path.endswith("/"):
-        new_path = path.rstrip("/")
-        new_url = request.url.replace(path=new_path)
-        response = await call_next(request)
-        return response
-    
-    return await call_next(request)
 
 # ==================== STARTUP EVENT ====================
 @app.on_event("startup")
@@ -73,7 +52,7 @@ def startup():
 # ==================== CORS ====================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
+     allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173", 
         "http://localhost:8080",
