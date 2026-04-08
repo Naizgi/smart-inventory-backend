@@ -170,27 +170,61 @@ def create_purchase_order(
     """Create a new purchase order"""
     
     try:
+        print("=" * 60)
+        print("CREATE PURCHASE ORDER - DEBUG START")
+        print(f"User ID: {current_user.id}, Branch ID: {current_user.branch_id}")
+        print(f"Supplier: {purchase_data.supplier}")
+        print(f"Number of items: {len(purchase_data.items)}")
+        
+        # Validate branch
         if not current_user.branch_id:
             raise HTTPException(status_code=400, detail="User not assigned to a branch")
         
+        # Validate items
+        if not purchase_data.items or len(purchase_data.items) == 0:
+            raise HTTPException(status_code=400, detail="At least one item is required")
+        
         # Calculate totals
         subtotal = Decimal('0')
-        for item in purchase_data.items:
-            item_total = item.quantity_ordered * item.unit_cost
+        for idx, item in enumerate(purchase_data.items):
+            print(f"Item {idx}: product_id={item.product_id}, quantity={item.quantity_ordered}, cost={item.unit_cost}")
+            
+            # Validate product exists
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+            if not product:
+                raise HTTPException(status_code=404, detail=f"Product ID {item.product_id} not found")
+            
+            print(f"  Product found: {product.name}")
+            
+            # Convert to Decimal
+            quantity = Decimal(str(item.quantity_ordered))
+            cost = Decimal(str(item.unit_cost))
+            item_total = quantity * cost
             subtotal += item_total
+            print(f"  Item total: {item_total}, Running subtotal: {subtotal}")
         
-        total_amount = subtotal + purchase_data.tax_amount + purchase_data.shipping_cost - purchase_data.discount_amount
+        # Calculate final totals
+        tax = Decimal(str(purchase_data.tax_amount)) if purchase_data.tax_amount else Decimal('0')
+        shipping = Decimal(str(purchase_data.shipping_cost)) if purchase_data.shipping_cost else Decimal('0')
+        discount = Decimal(str(purchase_data.discount_amount)) if purchase_data.discount_amount else Decimal('0')
+        total_amount = subtotal + tax + shipping - discount
+        
+        print(f"Subtotal: {subtotal}, Tax: {tax}, Shipping: {shipping}, Discount: {discount}, Total: {total_amount}")
+        
+        # Generate order number
+        order_number = generate_order_number()
+        print(f"Order number: {order_number}")
         
         # Create purchase order
         purchase_order = PurchaseOrder(
-            order_number=generate_order_number(),
+            order_number=order_number,
             branch_id=current_user.branch_id,
             supplier=purchase_data.supplier,
             expected_delivery_date=purchase_data.expected_delivery_date,
             subtotal=subtotal,
-            tax_amount=purchase_data.tax_amount,
-            shipping_cost=purchase_data.shipping_cost,
-            discount_amount=purchase_data.discount_amount,
+            tax_amount=tax,
+            shipping_cost=shipping,
+            discount_amount=discount,
             total_amount=total_amount,
             notes=purchase_data.notes,
             created_by=current_user.id,
@@ -199,26 +233,32 @@ def create_purchase_order(
         
         db.add(purchase_order)
         db.flush()
+        print(f"Purchase order created with ID: {purchase_order.id}")
         
         # Add items
-        for item_data in purchase_data.items:
-            product = db.query(Product).filter(Product.id == item_data.product_id).first()
-            if not product:
-                raise HTTPException(status_code=404, detail=f"Product {item_data.product_id} not found")
+        for idx, item_data in enumerate(purchase_data.items):
+            print(f"Adding item {idx} to purchase order...")
+            
+            quantity = Decimal(str(item_data.quantity_ordered))
+            cost = Decimal(str(item_data.unit_cost))
             
             purchase_item = PurchaseOrderItem(
                 purchase_order_id=purchase_order.id,
                 product_id=item_data.product_id,
-                quantity_ordered=item_data.quantity_ordered,
-                unit_cost=item_data.unit_cost,
-                total_cost=item_data.quantity_ordered * item_data.unit_cost,
+                quantity_ordered=quantity,
+                unit_cost=cost,
+                total_cost=quantity * cost,
                 notes=item_data.notes
             )
             db.add(purchase_item)
+            print(f"  Item {idx} added successfully")
         
         db.commit()
         db.refresh(purchase_order)
+        print("✅ Purchase order committed successfully!")
+        print("=" * 60)
         
+        # Prepare response
         creator = db.query(User).filter(User.id == purchase_order.created_by).first()
         creator_name = creator.name if creator else "System"
         
@@ -229,10 +269,10 @@ def create_purchase_order(
                 "id": item.id,
                 "product_id": item.product_id,
                 "product_name": product.name if product else None,
-                "quantity_ordered": item.quantity_ordered,
+                "quantity_ordered": float(item.quantity_ordered),
                 "unit_cost": float(item.unit_cost),
                 "notes": item.notes,
-                "quantity_received": item.quantity_received,
+                "quantity_received": float(item.quantity_received),
                 "total_cost": float(item.total_cost),
                 "received_at": item.received_at
             })
@@ -257,15 +297,16 @@ def create_purchase_order(
             "updated_at": purchase_order.updated_at,
             "items": items_response
         }
-    
+        
     except HTTPException:
         db.rollback()
         raise
     except Exception as e:
         db.rollback()
-        print(f"Error creating purchase order: {str(e)}")
+        print(f"❌ ERROR creating purchase order: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
 # GET - Get all purchase orders (handle both with and without trailing slash)
 @router.get("/orders", response_model=List[PurchaseOrderResponse])
 @router.get("/orders/", response_model=List[PurchaseOrderResponse])

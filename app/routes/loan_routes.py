@@ -11,7 +11,7 @@ from app.schemas import (
     LoanCreate, LoanResponse, LoanUpdate, LoanPaymentCreate,
     LoanPaymentResponse, LoanSettleRequest
 )
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/loans", tags=["Loans"])
 
@@ -24,7 +24,7 @@ def generate_payment_number():
 # POST - Create loan (handle both with and without trailing slash)
 @router.post("", response_model=LoanResponse)
 @router.post("/", response_model=LoanResponse)
-async def create_loan(
+def create_loan(  # Removed async
     loan_data: LoanCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -181,7 +181,7 @@ async def create_loan(
 # GET - Get all loans (handle both with and without trailing slash)
 @router.get("", response_model=List[LoanResponse])
 @router.get("/", response_model=List[LoanResponse])
-async def get_loans(
+def get_loans(  # Removed async
     customer_name: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
@@ -268,7 +268,7 @@ async def get_loans(
 
 # GET by ID - no change needed
 @router.get("/{loan_id}", response_model=LoanResponse)
-async def get_loan(
+def get_loan(  # Removed async
     loan_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -343,8 +343,140 @@ async def get_loan(
         "updated_at": loan.updated_at
     }
 
+# PUT - Update loan (handle both with and without trailing slash for collection? No, this is by ID)
+@router.put("/{loan_id}", response_model=LoanResponse)
+def update_loan(
+    loan_id: int,
+    loan_update: LoanUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)  # Only admin can update loans
+):
+    """Update loan details (Admin only)"""
+    
+    loan = db.query(Loan).filter(Loan.id == loan_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    
+    if loan_update.due_date:
+        loan.due_date = datetime.combine(loan_update.due_date, datetime.min.time())
+    if loan_update.interest_rate is not None:
+        loan.interest_rate = Decimal(str(loan_update.interest_rate))
+        # Recalculate interest amount
+        loan.interest_amount = (loan.total_amount - loan.interest_amount) * (loan.interest_rate / 100)
+        loan.total_amount = (loan.total_amount - loan.interest_amount) + loan.interest_amount
+        loan.remaining_amount = loan.total_amount - loan.paid_amount
+    if loan_update.status:
+        loan.status = loan_update.status
+    if loan_update.notes:
+        loan.notes = loan_update.notes
+    
+    loan.updated_at = datetime.now()
+    
+    db.commit()
+    db.refresh(loan)
+    
+    creator = db.query(User).filter(User.id == loan.created_by).first()
+    creator_name = creator.name if creator else "System"
+    
+    items_response = []
+    for item in loan.items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        items_response.append({
+            "id": item.id,
+            "product_id": item.product_id,
+            "quantity": item.quantity,
+            "unit_price": item.unit_price,
+            "line_total": item.line_total,
+            "product_name": product.name if product else None
+        })
+    
+    payments_response = []
+    for payment in loan.payments:
+        recorder = db.query(User).filter(User.id == payment.recorded_by).first()
+        payments_response.append({
+            "id": payment.id,
+            "payment_number": payment.payment_number,
+            "payment_date": payment.payment_date,
+            "amount": float(payment.amount),
+            "payment_method": payment.payment_method,
+            "reference_number": payment.reference_number,
+            "notes": payment.notes,
+            "recorded_by": recorder.name if recorder else "System",
+            "sale_id": payment.sale_id,
+            "created_at": payment.created_at
+        })
+    
+    return {
+        "id": loan.id,
+        "loan_number": loan.loan_number,
+        "branch_id": loan.branch_id,
+        "customer_name": loan.customer_name,
+        "customer_phone": loan.customer_phone,
+        "customer_email": loan.customer_email,
+        "loan_date": loan.loan_date.date(),
+        "due_date": loan.due_date.date(),
+        "total_amount": float(loan.total_amount),
+        "paid_amount": float(loan.paid_amount),
+        "remaining_amount": float(loan.remaining_amount),
+        "interest_rate": float(loan.interest_rate),
+        "interest_amount": float(loan.interest_amount),
+        "status": loan.status,
+        "notes": loan.notes,
+        "items": items_response,
+        "payments": payments_response,
+        "created_by": creator_name,
+        "approved_by": None,
+        "approved_at": None,
+        "created_at": loan.created_at,
+        "updated_at": loan.updated_at
+    }
+
+# DELETE - Delete loan (Admin only)
+@router.delete("/{loan_id}", status_code=204)
+def delete_loan(
+    loan_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete a loan (Admin only)"""
+    
+    loan = db.query(Loan).filter(Loan.id == loan_id).first()
+    if not loan:
+        raise HTTPException(status_code=404, detail="Loan not found")
+    
+    # Only allow deletion of loans with no payments or settled status
+    if loan.paid_amount > 0 and loan.status != 'settled':
+        raise HTTPException(status_code=400, detail="Cannot delete loan with existing payments")
+    
+    # Restore stock for items
+    for item in loan.items:
+        stock = db.query(Stock).filter(
+            Stock.branch_id == loan.branch_id,
+            Stock.product_id == item.product_id
+        ).first()
+        if stock:
+            stock.quantity += item.quantity
+        
+        # Record stock movement for restoration
+        stock_movement = StockMovement(
+            branch_id=loan.branch_id,
+            product_id=item.product_id,
+            user_id=current_user.id,
+            change_qty=item.quantity,
+            movement_type="loan_restore",
+            reference_id=loan.id,
+            notes=f"Loan #{loan.loan_number} deleted - Stock restored"
+        )
+        db.add(stock_movement)
+    
+    db.delete(loan)
+    db.commit()
+    
+    return None
+
+# POST - Add payment (no change needed)
 @router.post("/{loan_id}/payments", response_model=LoanPaymentResponse)
-async def add_loan_payment(
+def add_loan_payment(  # Removed async
     loan_id: int,
     payment_data: LoanPaymentCreate,
     db: Session = Depends(get_db),
@@ -413,8 +545,9 @@ async def add_loan_payment(
         "created_at": payment.created_at
     }
 
+# POST - Settle loan (no change needed)
 @router.post("/{loan_id}/settle")
-async def settle_loan(
+def settle_loan(  # Removed async
     loan_id: int,
     settle_data: LoanSettleRequest,
     db: Session = Depends(get_db),
