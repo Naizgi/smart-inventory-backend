@@ -9,7 +9,9 @@ from app.utils.dependencies import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/users", tags=["Users"])
 
-@router.post("/", response_model=User, status_code=status.HTTP_201_CREATED)
+# POST - Create user (handle both with and without slash)
+@router.post("", response_model=User, status_code=status.HTTP_201_CREATED)   # No slash
+@router.post("/", response_model=User, status_code=status.HTTP_201_CREATED)  # With slash
 def create_user(
     user: UserCreate,
     db: Session = Depends(get_db),
@@ -34,9 +36,9 @@ def create_user(
     db.refresh(db_user)
     return db_user
 
-# FIXED: Added both decorators
-@router.get("", response_model=List[User])   # Handles /api/users
-@router.get("/", response_model=List[User])  # Handles /api/users/
+# GET - Get all users (handle both with and without slash)
+@router.get("", response_model=List[User])   # No slash
+@router.get("/", response_model=List[User])  # With slash
 def get_users(
     db: Session = Depends(get_db),
     current_user = Depends(require_admin)
@@ -45,6 +47,7 @@ def get_users(
     users = db.query(UserModel).all()
     return users
 
+# GET by ID - no change needed (always has slash)
 @router.get("/{user_id}", response_model=User)
 def get_user(
     user_id: int,
@@ -57,6 +60,7 @@ def get_user(
         raise HTTPException(status_code=404, detail="User not found")
     return user
 
+# PUT by ID - no change needed
 @router.put("/{user_id}", response_model=User)
 def update_user(
     user_id: int,
@@ -81,6 +85,7 @@ def update_user(
     db.refresh(user)
     return user
 
+# DELETE by ID - no change needed
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
@@ -92,7 +97,6 @@ def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Don't allow deleting yourself
     if user.id == current_user.id:
         raise HTTPException(status_code=400, detail="Cannot delete your own account")
     
@@ -143,11 +147,9 @@ def change_password(
     if len(new_password) < 6:
         raise HTTPException(status_code=400, detail="New password must be at least 6 characters")
     
-    # Verify current password
     if not AuthService.verify_password(current_password, current_user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")
     
-    # Update password
     current_user.password_hash = AuthService.get_password_hash(new_password)
     db.commit()
     
