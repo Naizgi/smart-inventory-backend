@@ -32,8 +32,8 @@ router = APIRouter(prefix="/api/purchases", tags=["Purchases"])
 # ==================== LEGACY PURCHASE ROUTES ====================
 
 # POST - Create purchase (handle both with and without trailing slash)
-@router.post("", response_model=PurchaseSchema)   # No slash - /api/purchases
-@router.post("/", response_model=PurchaseSchema)  # With slash - /api/purchases/
+@router.post("", response_model=PurchaseSchema, status_code=201)
+@router.post("/", response_model=PurchaseSchema, status_code=201)
 def create_purchase(
     purchase_data: PurchaseCreate,
     db: Session = Depends(get_db),
@@ -42,7 +42,6 @@ def create_purchase(
     """Create a new purchase (legacy)"""
     
     try:
-        # Use the current user's branch
         branch_id = current_user.branch_id
         
         if not branch_id:
@@ -77,7 +76,7 @@ def create_purchase(
             )
             db.add(purchase_item)
             
-            # Update stock in the user's branch
+            # Update stock
             stock = db.query(Stock).filter(
                 Stock.branch_id == branch_id,
                 Stock.product_id == item_data.product_id
@@ -118,13 +117,11 @@ def create_purchase(
     except Exception as e:
         db.rollback()
         print(f"Error creating purchase: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # GET - Get all purchases (handle both with and without trailing slash)
-@router.get("", response_model=List[PurchaseSchema])   # No slash - /api/purchases
-@router.get("/", response_model=List[PurchaseSchema])  # With slash - /api/purchases/
+@router.get("", response_model=List[PurchaseSchema])
+@router.get("/", response_model=List[PurchaseSchema])
 def get_purchases(
     supplier: Optional[str] = Query(None),
     from_date: Optional[date] = Query(None),
@@ -155,8 +152,6 @@ def get_purchases(
     
     except Exception as e:
         print(f"Error getting purchases: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ==================== PURCHASE ORDER ROUTES ====================
@@ -165,8 +160,8 @@ def generate_order_number():
     return f"PO-{datetime.now().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
 # POST - Create purchase order (handle both with and without trailing slash)
-@router.post("/orders", response_model=PurchaseOrderResponse)   # No trailing slash
-@router.post("/orders/", response_model=PurchaseOrderResponse)  # With trailing slash
+@router.post("/orders", response_model=PurchaseOrderResponse, status_code=201)
+@router.post("/orders/", response_model=PurchaseOrderResponse, status_code=201)
 def create_purchase_order(
     purchase_data: PurchaseOrderCreate,
     db: Session = Depends(get_db),
@@ -175,8 +170,6 @@ def create_purchase_order(
     """Create a new purchase order"""
     
     try:
-        print(f"Received purchase data: {purchase_data}")
-        
         if not current_user.branch_id:
             raise HTTPException(status_code=400, detail="User not assigned to a branch")
         
@@ -185,11 +178,8 @@ def create_purchase_order(
         for item in purchase_data.items:
             item_total = item.quantity_ordered * item.unit_cost
             subtotal += item_total
-            print(f"Item: {item.product_id}, Qty: {item.quantity_ordered}, Cost: {item.unit_cost}, Total: {item_total}")
         
         total_amount = subtotal + purchase_data.tax_amount + purchase_data.shipping_cost - purchase_data.discount_amount
-        
-        print(f"Subtotal: {subtotal}, Tax: {purchase_data.tax_amount}, Shipping: {purchase_data.shipping_cost}, Discount: {purchase_data.discount_amount}, Total: {total_amount}")
         
         # Create purchase order
         purchase_order = PurchaseOrder(
@@ -212,7 +202,6 @@ def create_purchase_order(
         
         # Add items
         for item_data in purchase_data.items:
-            # Verify product exists
             product = db.query(Product).filter(Product.id == item_data.product_id).first()
             if not product:
                 raise HTTPException(status_code=404, detail=f"Product {item_data.product_id} not found")
@@ -230,11 +219,9 @@ def create_purchase_order(
         db.commit()
         db.refresh(purchase_order)
         
-        # Get creator name
         creator = db.query(User).filter(User.id == purchase_order.created_by).first()
         creator_name = creator.name if creator else "System"
         
-        # Prepare items with product names
         items_response = []
         for item in purchase_order.items:
             product = db.query(Product).filter(Product.id == item.product_id).first()
@@ -277,13 +264,11 @@ def create_purchase_order(
     except Exception as e:
         db.rollback()
         print(f"Error creating purchase order: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # GET - Get all purchase orders (handle both with and without trailing slash)
-@router.get("/orders", response_model=List[PurchaseOrderResponse])   # No trailing slash
-@router.get("/orders/", response_model=List[PurchaseOrderResponse])  # With trailing slash
+@router.get("/orders", response_model=List[PurchaseOrderResponse])
+@router.get("/orders/", response_model=List[PurchaseOrderResponse])
 def get_purchase_orders(
     supplier: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
@@ -360,11 +345,9 @@ def get_purchase_orders(
     
     except Exception as e:
         print(f"Error getting purchase orders: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# GET by ID
+# GET by ID - no change needed
 @router.get("/orders/{order_id}", response_model=PurchaseOrderResponse)
 def get_purchase_order(
     order_id: int,
@@ -421,11 +404,9 @@ def get_purchase_order(
         raise
     except Exception as e:
         print(f"Error getting purchase order: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# POST receive
+# POST receive - no change needed (has slash before ID)
 @router.post("/orders/{order_id}/receive")
 def receive_purchase_order(
     order_id: int,
@@ -436,7 +417,6 @@ def receive_purchase_order(
     """Receive items from purchase order and update inventory"""
     
     try:
-        # Get the purchase order
         purchase_order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
         if not purchase_order:
             raise HTTPException(status_code=404, detail="Purchase order not found")
@@ -444,8 +424,6 @@ def receive_purchase_order(
         if purchase_order.status == "completed":
             raise HTTPException(status_code=400, detail="Purchase order already completed")
         
-        # IMPORTANT: Use the current user's branch, not the purchase order's branch
-        # This ensures stock is added to the admin's branch
         branch_id = current_user.branch_id
         
         if not branch_id:
@@ -453,9 +431,7 @@ def receive_purchase_order(
         
         received_items = []
         
-        # Process each received item
         for receive_item in receive_data.items:
-            # Find the purchase order item
             purchase_item = db.query(PurchaseOrderItem).filter(
                 PurchaseOrderItem.purchase_order_id == order_id,
                 PurchaseOrderItem.product_id == receive_item.product_id
@@ -467,10 +443,8 @@ def receive_purchase_order(
                     detail=f"Product ID {receive_item.product_id} not found in purchase order"
                 )
             
-            # Calculate new received quantity
             new_received = purchase_item.quantity_received + receive_item.quantity_received
             
-            # Validate quantity doesn't exceed ordered quantity
             if new_received > purchase_item.quantity_ordered:
                 remaining = purchase_item.quantity_ordered - purchase_item.quantity_received
                 raise HTTPException(
@@ -478,41 +452,35 @@ def receive_purchase_order(
                     detail=f"Cannot receive {receive_item.quantity_received} units. Only {remaining} units remaining."
                 )
             
-            # Update purchase order item
             purchase_item.quantity_received = new_received
             purchase_item.received_at = datetime.now()
             
-            # Get product details
             product = db.query(Product).filter(Product.id == purchase_item.product_id).first()
             
-            # Update stock in the CURRENT USER'S BRANCH (not the purchase order's branch)
             stock = db.query(Stock).filter(
-                Stock.branch_id == branch_id,  # Use current user's branch
+                Stock.branch_id == branch_id,
                 Stock.product_id == purchase_item.product_id
             ).first()
             
             if stock:
                 stock.quantity += receive_item.quantity_received
-                print(f"Updated stock in branch {branch_id}: {product.name if product else 'Unknown'} +{receive_item.quantity_received}")
             else:
                 stock = Stock(
-                    branch_id=branch_id,  # Use current user's branch
+                    branch_id=branch_id,
                     product_id=purchase_item.product_id,
                     quantity=receive_item.quantity_received,
                     reorder_level=0
                 )
                 db.add(stock)
-                print(f"Created new stock record in branch {branch_id}: {product.name if product else 'Unknown'} = {receive_item.quantity_received}")
             
-            # Create stock movement record
             stock_movement = StockMovement(
-                branch_id=branch_id,  # Use current user's branch
+                branch_id=branch_id,
                 product_id=purchase_item.product_id,
                 user_id=current_user.id,
                 change_qty=receive_item.quantity_received,
                 movement_type="purchase",
                 reference_id=purchase_order.id,
-                notes=f"Received from PO: {purchase_order.order_number} - Supplier: {purchase_order.supplier}"
+                notes=f"Received from PO: {purchase_order.order_number}"
             )
             db.add(stock_movement)
             
@@ -525,7 +493,6 @@ def receive_purchase_order(
                 "branch_id": branch_id
             })
         
-        # Update purchase order status
         all_items_received = all(
             item.quantity_received >= item.quantity_ordered 
             for item in purchase_order.items
@@ -557,11 +524,9 @@ def receive_purchase_order(
     except Exception as e:
         db.rollback()
         print(f"Error in receive_purchase_order: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# PUT update
+# PUT update - no change needed (has slash before ID)
 @router.put("/orders/{order_id}", response_model=PurchaseOrderResponse)
 def update_purchase_order(
     order_id: int,
@@ -631,15 +596,43 @@ def update_purchase_order(
         raise
     except Exception as e:
         print(f"Error updating purchase order: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+# DELETE purchase order - no change needed (has slash before ID)
+@router.delete("/orders/{order_id}", status_code=204)
+def delete_purchase_order(
+    order_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete a purchase order (Admin only)"""
+    
+    try:
+        purchase_order = db.query(PurchaseOrder).filter(PurchaseOrder.id == order_id).first()
+        if not purchase_order:
+            raise HTTPException(status_code=404, detail="Purchase order not found")
+        
+        # Only allow deletion of pending orders
+        if purchase_order.status != "pending":
+            raise HTTPException(status_code=400, detail="Cannot delete non-pending purchase orders")
+        
+        db.delete(purchase_order)
+        db.commit()
+        
+        return None
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting purchase order: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 # ==================== REPORTS ROUTE ====================
 
 # GET reports (handle both with and without trailing slash)
-@router.get("/reports")   # No slash - /api/purchases/reports
-@router.get("/reports/")  # With slash - /api/purchases/reports/
+@router.get("/reports")
+@router.get("/reports/")
 def get_purchase_report(
     from_date: Optional[date] = Query(None),
     to_date: Optional[date] = Query(None),
@@ -649,7 +642,6 @@ def get_purchase_report(
     """Get purchase report"""
     
     try:
-        # Set default dates (last 30 days if not specified)
         if not to_date:
             to_date = date.today()
         if not from_date:
@@ -658,21 +650,17 @@ def get_purchase_report(
         start_date = datetime.combine(from_date, datetime.min.time())
         end_date = datetime.combine(to_date, datetime.max.time())
         
-        # Get purchase orders
         purchase_orders = db.query(PurchaseOrder).filter(
             PurchaseOrder.order_date.between(start_date, end_date)
         ).all()
         
-        # Get legacy purchases
         purchases = db.query(PurchaseModel).filter(
             PurchaseModel.created_at.between(start_date, end_date)
         ).all()
         
-        # Calculate totals
         total_purchase_cost = sum(po.total_amount for po in purchase_orders)
         total_legacy_cost = sum(p.total_amount for p in purchases)
         
-        # Group by supplier
         supplier_totals = {}
         for po in purchase_orders:
             supplier_totals[po.supplier] = supplier_totals.get(po.supplier, 0) + po.total_amount
@@ -681,7 +669,6 @@ def get_purchase_report(
             if p.supplier_name:
                 supplier_totals[p.supplier_name] = supplier_totals.get(p.supplier_name, 0) + p.total_amount
         
-        # Get top purchased items
         top_items = db.query(
             PurchaseOrderItem.product_id,
             Product.name,
@@ -742,6 +729,4 @@ def get_purchase_report(
     
     except Exception as e:
         print(f"Error generating purchase report: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
