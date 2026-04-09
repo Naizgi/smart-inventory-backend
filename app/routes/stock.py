@@ -181,15 +181,18 @@ def add_stock(
             Stock.product_id == product_id
         ).first()
         
+        from decimal import Decimal
+        
         if stock:
-            old_quantity = stock.quantity
-            stock.quantity += quantity
-            print(f"Updated existing stock: {old_quantity} -> {stock.quantity}")
+            old_quantity = float(stock.quantity)
+            # Convert Decimal to float for addition, then back to Decimal for storage
+            stock.quantity = Decimal(str(float(stock.quantity) + quantity))
+            print(f"Updated existing stock: {old_quantity} -> {float(stock.quantity)}")
         else:
             stock = Stock(
                 branch_id=branch_id,
                 product_id=product_id,
-                quantity=quantity,
+                quantity=Decimal(str(quantity)),
                 reorder_level=10
             )
             db.add(stock)
@@ -200,7 +203,7 @@ def add_stock(
             branch_id=branch_id,
             product_id=product_id,
             user_id=current_user.id,
-            change_qty=quantity,
+            change_qty=Decimal(str(quantity)),
             movement_type="purchase",
             notes=notes or f"Stock added by {current_user.name} (Role: {current_user.role})"
         )
@@ -238,8 +241,6 @@ def add_stock(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to add stock: {str(e)}")
-    
-    
     
 # POST - Initialize branch stock (Modified to allow both admin and sales with restrictions)
 @router.post("/initialize/{branch_id}")   # No trailing slash
