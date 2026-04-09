@@ -1,11 +1,3 @@
-# Add these methods to your existing AlertService class
-
-@staticmethod
-def get_alert_by_id(db: Session, alert_id: int):
-    """Get a single alert by ID"""
-    from app.models import Alert
-    return db.query(Alert).filter(Alert.id == alert_id).first()
-
 @staticmethod
 def check_low_stock_for_branch(db: Session, branch_id: int):
     """Check low stock and create alerts for a specific branch only"""
@@ -53,6 +45,7 @@ def check_low_stock_for_branch(db: Session, branch_id: int):
 def auto_resolve_alerts_for_branch(db: Session, branch_id: int):
     """Auto-resolve alerts for a specific branch when stock is restocked"""
     from app.models import Alert, Stock
+    from datetime import datetime
     
     # Get unresolved alerts for the branch
     unresolved_alerts = db.query(Alert).filter(
