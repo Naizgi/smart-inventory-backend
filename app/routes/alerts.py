@@ -1,65 +1,78 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy.orm import Session
-from typing import List, Optional
-from app.database import get_db
-from app.services import AlertService
-from app.schemas import AlertResponse
-from app.utils.dependencies import require_admin
+# Add these methods to your existing AlertService class
 
-router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
+@staticmethod
+def get_alert_by_id(db: Session, alert_id: int):
+    """Get a single alert by ID"""
+    from app.models import Alert
+    return db.query(Alert).filter(Alert.id == alert_id).first()
 
-# Handle BOTH with and without trailing slash
-@router.get("")  # No trailing slash
-@router.get("/")  # With trailing slash
-def get_alerts(
-    resolved: bool = Query(False),
-    branch_id: Optional[int] = None,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_admin)
-):
-    """Get alerts (Admin only)"""
-    alerts = AlertService.get_alerts(db, resolved, branch_id)
-    return alerts
-
-@router.post("/{alert_id}/resolve")
-def resolve_alert(
-    alert_id: int,
-    db: Session = Depends(get_db),
-    current_user = Depends(require_admin)
-):
-    """Resolve an alert (Admin only)"""
-    alert = AlertService.resolve_alert(db, alert_id)
-    if not alert:
-        raise HTTPException(status_code=404, detail="Alert not found")
-    return {"message": "Alert resolved successfully"}
-
-@router.post("/check-low-stock")
-def check_low_stock_manual(
-    db: Session = Depends(get_db),
-    current_user = Depends(require_admin)
-):
-    """Manually trigger low stock check and create alerts"""
-    try:
-        alerts_created = AlertService.check_low_stock_and_create_alerts(db)
-        resolved_count = AlertService.auto_resolve_alerts(db)
+@staticmethod
+def check_low_stock_for_branch(db: Session, branch_id: int):
+    """Check low stock and create alerts for a specific branch only"""
+    from app.models import Stock, Alert, Product
+    from datetime import datetime
+    
+    # Find all stock items below reorder level for the specific branch
+    low_stock_items = db.query(Stock).filter(
+        Stock.branch_id == branch_id,
+        Stock.quantity < Stock.reorder_level,
+        Stock.quantity > 0
+    ).all()
+    
+    alerts_created = 0
+    
+    for stock in low_stock_items:
+        product = db.query(Product).filter(Product.id == stock.product_id).first()
         
-        return {
-            "message": "Low stock check completed",
-            "alerts_created": alerts_created,
-            "alerts_resolved": resolved_count
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Check if unresolved alert already exists for this stock
+        existing_alert = db.query(Alert).filter(
+            Alert.stock_id == stock.id,
+            Alert.resolved == False
+        ).first()
+        
+        if not existing_alert:
+            # Create new alert
+            alert = Alert(
+                stock_id=stock.id,
+                branch_id=branch_id,
+                product_name=product.name,
+                current_quantity=stock.quantity,
+                reorder_level=stock.reorder_level,
+                resolved=False,
+                created_at=datetime.now()
+            )
+            db.add(alert)
+            alerts_created += 1
+    
+    if alerts_created > 0:
+        db.commit()
+    
+    return alerts_created
 
-@router.get("/low-stock-summary")
-def get_low_stock_summary(
-    branch_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db),
-    current_user = Depends(require_admin)
-):
-    """Get summary of all low stock items"""
-    try:
-        summary = AlertService.get_low_stock_summary(db, branch_id)
-        return summary
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+@staticmethod
+def auto_resolve_alerts_for_branch(db: Session, branch_id: int):
+    """Auto-resolve alerts for a specific branch when stock is restocked"""
+    from app.models import Alert, Stock
+    
+    # Get unresolved alerts for the branch
+    unresolved_alerts = db.query(Alert).filter(
+        Alert.branch_id == branch_id,
+        Alert.resolved == False
+    ).all()
+    
+    resolved_count = 0
+    
+    for alert in unresolved_alerts:
+        # Get current stock
+        stock = db.query(Stock).filter(Stock.id == alert.stock_id).first()
+        
+        # If stock has been restocked above reorder level, resolve alert
+        if stock and stock.quantity >= stock.reorder_level:
+            alert.resolved = True
+            alert.resolved_at = datetime.now()
+            resolved_count += 1
+    
+    if resolved_count > 0:
+        db.commit()
+    
+    return resolved_count
