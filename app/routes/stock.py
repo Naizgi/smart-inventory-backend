@@ -124,6 +124,7 @@ def get_my_branch_stock(
         raise HTTPException(status_code=500, detail=str(e))
 
 # POST - Add stock (Modified to allow both admin and sales)
+# POST - Add stock (Modified to allow both admin and sales)
 @router.post("/{branch_id}/{product_id}/add")   # No trailing slash
 @router.post("/{branch_id}/{product_id}/add/")  # With trailing slash
 def add_stock(
@@ -132,7 +133,7 @@ def add_stock(
     quantity: float = Query(..., gt=0),
     notes: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  # Changed from require_admin to get_current_user
+    current_user = Depends(get_current_user)
 ):
     """Add stock to a branch
     
@@ -141,15 +142,30 @@ def add_stock(
     """
     
     try:
+        print(f"=== ADD STOCK DEBUG ===")
+        print(f"Branch ID: {branch_id}")
+        print(f"Product ID: {product_id}")
+        print(f"Quantity: {quantity}")
+        print(f"Notes: {notes}")
+        print(f"Current User ID: {current_user.id}")
+        print(f"Current User Role: {current_user.role}")
+        print(f"Current User Branch ID: {current_user.branch_id}")
+        
         # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
+            print(f"Branch {branch_id} not found")
             raise HTTPException(status_code=404, detail="Branch not found")
+        
+        print(f"Branch found: {branch.name}")
         
         # Check if product exists
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
+            print(f"Product {product_id} not found")
             raise HTTPException(status_code=404, detail="Product not found")
+        
+        print(f"Product found: {product.name}")
         
         # Permission check: Salesman can only add stock to their own branch
         if current_user.role == "salesman":
@@ -157,6 +173,7 @@ def add_stock(
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to add stock to this branch")
+            print("Salesman permission check passed")
         
         # Get or create stock record
         stock = db.query(Stock).filter(
@@ -165,7 +182,9 @@ def add_stock(
         ).first()
         
         if stock:
+            old_quantity = stock.quantity
             stock.quantity += quantity
+            print(f"Updated existing stock: {old_quantity} -> {stock.quantity}")
         else:
             stock = Stock(
                 branch_id=branch_id,
@@ -174,6 +193,7 @@ def add_stock(
                 reorder_level=10
             )
             db.add(stock)
+            print(f"Created new stock record with quantity: {quantity}")
         
         # Record stock movement
         stock_movement = StockMovement(
@@ -185,27 +205,42 @@ def add_stock(
             notes=notes or f"Stock added by {current_user.name} (Role: {current_user.role})"
         )
         db.add(stock_movement)
+        print(f"Created stock movement record")
         
+        # Commit the transaction
         db.commit()
+        print("Database commit successful")
+        
         db.refresh(stock)
         
-        return {
+        response_data = {
             "success": True,
             "message": f"Added {quantity} units of {product.name}",
             "product_id": product_id,
+            "product_name": product.name,
             "branch_id": branch_id,
+            "branch_name": branch.name,
+            "old_quantity": float(old_quantity) if 'old_quantity' in locals() else 0,
             "new_quantity": float(stock.quantity),
             "added_by": current_user.name,
             "role": current_user.role
         }
         
+        print(f"Response: {response_data}")
+        return response_data
+        
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         db.rollback()
-        print(f"Error in add_stock: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
-
+        print(f"ERROR in add_stock: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to add stock: {str(e)}")
+    
+    
+    
 # POST - Initialize branch stock (Modified to allow both admin and sales with restrictions)
 @router.post("/initialize/{branch_id}")   # No trailing slash
 @router.post("/initialize/{branch_id}/")  # With trailing slash
