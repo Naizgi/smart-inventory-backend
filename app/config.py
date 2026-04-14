@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "noreply@inventory.com"
     
     # Dashboard URL (for links in emails)
-    DASHBOARD_URL: str = "https://your-app.railway.app"
+    DASHBOARD_URL: str = "https://smartlink-inventory.up.railway.app"
     
     # Environment
     ENVIRONMENT: str = "development"  # development or production
