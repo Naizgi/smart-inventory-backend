@@ -1,10 +1,10 @@
 # app/main.py
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from app.database import engine, Base, SessionLocal
+from app.database import engine, Base, SessionLocal, get_db
 from app.config import settings
 from app.services import SettingsService, EmailScheduler
-from app.seeders.user_seeder import seed_users  # Import your seeder function
+from app.seeders.user_seeder import seed_users
 from datetime import datetime
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
