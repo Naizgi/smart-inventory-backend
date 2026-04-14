@@ -1,14 +1,15 @@
 # app/main.py
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, SessionLocal, get_db
 from app.config import settings
 from app.services import SettingsService, EmailScheduler
 from app.seeders.user_seeder import seed_users
+from app.utils.dependencies import get_current_user
+from app.models import User
 from datetime import datetime
 import logging
 from apscheduler.schedulers.background import BackgroundScheduler
-from contextlib import asynccontextmanager
 
 # ==================== LOGGING ====================
 logging.basicConfig(level=logging.INFO)
@@ -159,7 +160,7 @@ app.include_router(settings_router)
 # ==================== TEST EMAIL ENDPOINT (Admin only) ====================
 @app.post("/api/test/email")
 def test_email(
-    db: SessionLocal = Depends(get_db),
+    db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Test email sending (Admin only)"""
