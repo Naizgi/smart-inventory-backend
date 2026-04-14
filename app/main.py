@@ -3,10 +3,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base, SessionLocal
 from app.config import settings
-from app.services import SettingsService
+from app.services import SettingsService, EmailScheduler
 from app.seeders.user_seeder import seed_users  # Import your seeder function
 from datetime import datetime
 import logging
+from apscheduler.schedulers.background import BackgroundScheduler
+from contextlib import asynccontextmanager
 
 # ==================== LOGGING ====================
 logging.basicConfig(level=logging.INFO)
@@ -20,6 +22,65 @@ from app.routes import (
     sales_router, stock_router, temp_items_router, users_router
 )
 
+# ==================== SCHEDULER ====================
+scheduler = BackgroundScheduler()
+
+def run_low_stock_check():
+    """Run low stock check in a new database session"""
+    db = SessionLocal()
+    try:
+        logger.info("Running low stock check...")
+        EmailScheduler.check_and_send_low_stock_alerts(db)
+    except Exception as e:
+        logger.error(f"Error in low stock check: {e}")
+    finally:
+        db.close()
+
+def run_daily_report():
+    """Run daily report in a new database session"""
+    db = SessionLocal()
+    try:
+        logger.info("Running daily report...")
+        EmailScheduler.send_daily_report(db)
+    except Exception as e:
+        logger.error(f"Error in daily report: {e}")
+    finally:
+        db.close()
+
+def start_scheduler():
+    """Start the background scheduler for email notifications"""
+    if settings.ENVIRONMENT == "production":
+        # Run low stock check every hour
+        scheduler.add_job(
+            func=run_low_stock_check,
+            trigger="interval",
+            hours=1,
+            id="low_stock_check",
+            replace_existing=True
+        )
+        logger.info("✅ Low stock check scheduler started (every hour)")
+        
+        # Run daily report at 8:00 AM
+        scheduler.add_job(
+            func=run_daily_report,
+            trigger="cron",
+            hour=8,
+            minute=0,
+            id="daily_report",
+            replace_existing=True
+        )
+        logger.info("✅ Daily report scheduler started (8:00 AM)")
+        
+        scheduler.start()
+    else:
+        logger.info("Email scheduler disabled in development mode")
+
+def stop_scheduler():
+    """Stop the background scheduler"""
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("Scheduler stopped")
+
 # ==================== FASTAPI APP ====================
 app = FastAPI(
     title=settings.APP_NAME,
@@ -27,7 +88,7 @@ app = FastAPI(
     debug=settings.DEBUG
 )
 
-# ==================== STARTUP EVENT ====================
+# ==================== STARTUP & SHUTDOWN EVENTS ====================
 @app.on_event("startup")
 def startup():
     # Create all tables
@@ -43,16 +104,28 @@ def startup():
         # Seed users
         seed_users(db)
         logger.info("✅ Users seeded successfully")
+        
+        # Run initial low stock check on startup
+        EmailScheduler.check_and_send_low_stock_alerts(db)
+        logger.info("✅ Initial low stock check completed")
 
     except Exception as e:
         logger.error(f"⚠️ Error during startup: {e}")
     finally:
         db.close()
+    
+    # Start email scheduler
+    start_scheduler()
+
+@app.on_event("shutdown")
+def shutdown():
+    logger.info("Shutting down application...")
+    stop_scheduler()
 
 # ==================== CORS ====================
 app.add_middleware(
     CORSMiddleware,
-     allow_origins=[
+    allow_origins=[
         "http://localhost:3000",
         "http://localhost:5173", 
         "http://localhost:8080",
@@ -82,6 +155,39 @@ app.include_router(loan_router)
 app.include_router(purchase_router)
 app.include_router(temp_items_router)
 app.include_router(settings_router)
+
+# ==================== TEST EMAIL ENDPOINT (Admin only) ====================
+@app.post("/api/test/email")
+def test_email(
+    db: SessionLocal = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Test email sending (Admin only)"""
+    from app.services import EmailService
+    
+    if current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = EmailService.send_email(
+        to_emails=[current_user.email],
+        subject="Test Email from Inventory System",
+        template_name="daily_report.html",
+        context={
+            "user_name": current_user.name,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "total_sales": 0,
+            "total_revenue": 0,
+            "total_refunds": 0,
+            "net_revenue": 0,
+            "top_products": [],
+            "low_stock_items": []
+        }
+    )
+    
+    if result:
+        return {"message": "Test email sent successfully"}
+    else:
+        raise HTTPException(status_code=500, detail="Failed to send email")
 
 # ==================== ROOT ====================
 @app.get("/")
