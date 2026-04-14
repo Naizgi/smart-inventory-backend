@@ -15,9 +15,11 @@ from app.models import (
 from app.schemas import (
     SaleResponse, SaleCreate, SaleItemResponse, 
     RefundCreate, RefundResponse, RefundApprove,
-    BankAccountResponse
+    BankAccount as BankAccountSchema,
+    BankAccountCreate,
+    BankAccountUpdate
 )
-from app.utils.dependencies import get_current_user
+from app.utils.dependencies import get_current_user, require_admin
 
 router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
@@ -46,6 +48,274 @@ def get_default_tax_rate(db: Session) -> float:
         SystemSetting.key == "default_tax_rate"
     ).first()
     return float(setting.value) if setting else 15.0
+
+# ==================== BANK ACCOUNT CRUD OPERATIONS ====================
+
+# CREATE Bank Account
+@router.post("/bank-accounts", response_model=BankAccountSchema, status_code=status.HTTP_201_CREATED)
+def create_bank_account(
+    account_data: BankAccountCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Create a new bank account (Admin only)"""
+    
+    try:
+        # Check if branch exists
+        branch = db.query(Branch).filter(Branch.id == account_data.branch_id).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+        
+        # Check if account number already exists for this branch
+        existing_account = db.query(BankAccount).filter(
+            BankAccount.branch_id == account_data.branch_id,
+            BankAccount.account_number == account_data.account_number
+        ).first()
+        
+        if existing_account:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Account number {account_data.account_number} already exists for this branch"
+            )
+        
+        # Create new bank account
+        new_account = BankAccount(
+            branch_id=account_data.branch_id,
+            bank_name=account_data.bank_name,
+            account_number=account_data.account_number,
+            account_name=account_data.account_name,
+            account_type=account_data.account_type,
+            currency=account_data.currency,
+            is_active=account_data.is_active,
+            notes=account_data.notes
+        )
+        
+        db.add(new_account)
+        db.commit()
+        db.refresh(new_account)
+        
+        # Prepare response with branch name
+        return {
+            "id": new_account.id,
+            "branch_id": new_account.branch_id,
+            "branch_name": branch.name,
+            "bank_name": new_account.bank_name,
+            "account_number": new_account.account_number,
+            "account_name": new_account.account_name,
+            "account_type": new_account.account_type,
+            "currency": new_account.currency,
+            "is_active": new_account.is_active,
+            "notes": new_account.notes,
+            "created_at": new_account.created_at,
+            "updated_at": new_account.updated_at
+        }
+        
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating bank account: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to create bank account: {str(e)}")
+
+# GET all Bank Accounts
+@router.get("/bank-accounts", response_model=List[BankAccountSchema])
+def get_bank_accounts(
+    branch_id: Optional[int] = None,
+    is_active: Optional[bool] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all bank accounts (Admin sees all, Salesman sees only their branch)"""
+    
+    query = db.query(BankAccount)
+    
+    # Apply filters
+    if current_user.role == "salesman":
+        # Salesman can only see their branch's accounts
+        if not current_user.branch_id:
+            return []
+        query = query.filter(BankAccount.branch_id == current_user.branch_id)
+    elif branch_id:
+        query = query.filter(BankAccount.branch_id == branch_id)
+    
+    if is_active is not None:
+        query = query.filter(BankAccount.is_active == is_active)
+    
+    accounts = query.order_by(BankAccount.bank_name, BankAccount.account_number).all()
+    
+    # Prepare response with branch names
+    result = []
+    for account in accounts:
+        branch = db.query(Branch).filter(Branch.id == account.branch_id).first()
+        result.append({
+            "id": account.id,
+            "branch_id": account.branch_id,
+            "branch_name": branch.name if branch else "Unknown Branch",
+            "bank_name": account.bank_name,
+            "account_number": account.account_number,
+            "account_name": account.account_name,
+            "account_type": account.account_type,
+            "currency": account.currency,
+            "is_active": account.is_active,
+            "notes": account.notes,
+            "created_at": account.created_at,
+            "updated_at": account.updated_at
+        })
+    
+    return result
+
+# GET single Bank Account
+@router.get("/bank-accounts/{account_id}", response_model=BankAccountSchema)
+def get_bank_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a single bank account by ID"""
+    
+    account = db.query(BankAccount).filter(BankAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+    
+    # Check permissions
+    if current_user.role == "salesman" and account.branch_id != current_user.branch_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to view this bank account"
+        )
+    
+    branch = db.query(Branch).filter(Branch.id == account.branch_id).first()
+    
+    return {
+        "id": account.id,
+        "branch_id": account.branch_id,
+        "branch_name": branch.name if branch else "Unknown Branch",
+        "bank_name": account.bank_name,
+        "account_number": account.account_number,
+        "account_name": account.account_name,
+        "account_type": account.account_type,
+        "currency": account.currency,
+        "is_active": account.is_active,
+        "notes": account.notes,
+        "created_at": account.created_at,
+        "updated_at": account.updated_at
+    }
+
+# UPDATE Bank Account
+@router.put("/bank-accounts/{account_id}", response_model=BankAccountSchema)
+def update_bank_account(
+    account_id: int,
+    account_update: BankAccountUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Update a bank account (Admin only)"""
+    
+    account = db.query(BankAccount).filter(BankAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+    
+    try:
+        # Update fields
+        update_data = account_update.dict(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(account, field, value)
+        
+        account.updated_at = datetime.now()
+        db.commit()
+        db.refresh(account)
+        
+        branch = db.query(Branch).filter(Branch.id == account.branch_id).first()
+        
+        return {
+            "id": account.id,
+            "branch_id": account.branch_id,
+            "branch_name": branch.name if branch else "Unknown Branch",
+            "bank_name": account.bank_name,
+            "account_number": account.account_number,
+            "account_name": account.account_name,
+            "account_type": account.account_type,
+            "currency": account.currency,
+            "is_active": account.is_active,
+            "notes": account.notes,
+            "created_at": account.created_at,
+            "updated_at": account.updated_at
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating bank account: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to update bank account: {str(e)}")
+
+# DELETE Bank Account (Soft delete - just deactivate)
+@router.delete("/bank-accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_bank_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Delete (deactivate) a bank account (Admin only)"""
+    
+    account = db.query(BankAccount).filter(BankAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+    
+    try:
+        # Soft delete - just deactivate
+        account.is_active = False
+        account.updated_at = datetime.now()
+        db.commit()
+        return None
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error deleting bank account: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to delete bank account: {str(e)}")
+
+# Activate Bank Account
+@router.patch("/bank-accounts/{account_id}/activate", response_model=BankAccountSchema)
+def activate_bank_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Activate a bank account (Admin only)"""
+    
+    account = db.query(BankAccount).filter(BankAccount.id == account_id).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Bank account not found")
+    
+    try:
+        account.is_active = True
+        account.updated_at = datetime.now()
+        db.commit()
+        db.refresh(account)
+        
+        branch = db.query(Branch).filter(Branch.id == account.branch_id).first()
+        
+        return {
+            "id": account.id,
+            "branch_id": account.branch_id,
+            "branch_name": branch.name if branch else "Unknown Branch",
+            "bank_name": account.bank_name,
+            "account_number": account.account_number,
+            "account_name": account.account_name,
+            "account_type": account.account_type,
+            "currency": account.currency,
+            "is_active": account.is_active,
+            "notes": account.notes,
+            "created_at": account.created_at,
+            "updated_at": account.updated_at
+        }
+        
+    except Exception as e:
+        db.rollback()
+        print(f"Error activating bank account: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to activate bank account: {str(e)}")
+
+# ==================== SALE OPERATIONS ====================
 
 # POST - Create sale with enhanced features
 @router.post("", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
@@ -318,6 +588,7 @@ def get_sales(
     end_date: Optional[datetime] = None,
     payment_method: Optional[str] = None,
     status: Optional[str] = None,
+    search: Optional[str] = None,
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
@@ -346,6 +617,11 @@ def get_sales(
         query = query.filter(Sale.payment_method == payment_method)
     if status:
         query = query.filter(Sale.status == status)
+    if search:
+        query = query.filter(
+            (Sale.invoice_number.ilike(f"%{search}%")) |
+            (Sale.customer_name.ilike(f"%{search}%"))
+        )
     
     sales = query.order_by(Sale.created_at.desc()).limit(limit).all()
     
