@@ -378,6 +378,7 @@ def create_refund(
             if sale_item.sale_id != original_sale.id:
                 raise HTTPException(status_code=400, detail="Item does not belong to this sale")
             
+            # Check already refunded quantity
             already_refunded = db.query(RefundItem).filter(
                 RefundItem.sale_item_id == sale_item.id
             ).all()
@@ -391,12 +392,13 @@ def create_refund(
                     detail=f"Cannot refund {refund_item.quantity} of item {sale_item.id}. Max refundable: {max_refundable}"
                 )
             
-            refund_amount = refund_item.quantity * sale_item.unit_price
+            # FIX: Convert both to Decimal for multiplication
+            refund_amount = Decimal(str(refund_item.quantity)) * Decimal(str(sale_item.unit_price))
             total_refund_amount += refund_amount
             
             refund_items.append({
                 "sale_item": sale_item,
-                "quantity": refund_item.quantity,
+                "quantity": Decimal(str(refund_item.quantity)),
                 "refund_amount": refund_amount,
                 "reason": refund_item.reason
             })
@@ -433,13 +435,14 @@ def create_refund(
             )
             db.add(refund_item)
             
+            # Update stock - add back the refunded quantity
             stock = db.query(Stock).filter(
                 Stock.branch_id == original_sale.branch_id,
                 Stock.product_id == item["sale_item"].product_id
             ).first()
             
             if stock:
-                stock.quantity += item["quantity"]
+                stock.quantity = stock.quantity + item["quantity"]
                 
                 stock_movement = StockMovement(
                     branch_id=original_sale.branch_id,
@@ -452,8 +455,10 @@ def create_refund(
                 )
                 db.add(stock_movement)
         
-        original_sale.refund_amount += total_refund_amount
+        # Update the original sale
+        original_sale.refund_amount = original_sale.refund_amount + total_refund_amount
         
+        # Check if sale is now fully refunded
         if original_sale.refund_amount >= original_sale.total_amount:
             original_sale.status = "refunded"
             original_sale.refund_status = "completed"
@@ -526,7 +531,7 @@ def create_refund(
         print(f"Error creating refund: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
+    
 @router.get("/refunds", response_model=List[RefundResponse])
 def get_refunds(
     branch_id: Optional[int] = None,
