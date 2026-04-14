@@ -28,14 +28,36 @@ def generate_invoice_number(db: Session) -> str:
     today = datetime.now().strftime("%Y%m%d")
     prefix = f"INV-{today}-"
     
-    # Get the last invoice number for today
     last_sale = db.query(Sale).filter(
         Sale.invoice_number.like(f"{prefix}%")
     ).order_by(Sale.id.desc()).first()
     
-    if last_sale:
-        last_number = int(last_sale.invoice_number.split("-")[-1])
-        new_number = last_number + 1
+    if last_sale and last_sale.invoice_number:
+        try:
+            last_number = int(last_sale.invoice_number.split("-")[-1])
+            new_number = last_number + 1
+        except (ValueError, IndexError):
+            new_number = 1
+    else:
+        new_number = 1
+    
+    return f"{prefix}{new_number:04d}"
+
+def generate_refund_number(db: Session) -> str:
+    """Generate a unique refund number"""
+    today = datetime.now().strftime("%Y%m%d")
+    prefix = f"REF-{today}-"
+    
+    last_refund = db.query(Refund).filter(
+        Refund.refund_number.like(f"{prefix}%")
+    ).order_by(Refund.id.desc()).first()
+    
+    if last_refund and last_refund.refund_number:
+        try:
+            last_number = int(last_refund.refund_number.split("-")[-1])
+            new_number = last_number + 1
+        except (ValueError, IndexError):
+            new_number = 1
     else:
         new_number = 1
     
@@ -51,7 +73,6 @@ def get_default_tax_rate(db: Session) -> float:
 
 # ==================== BANK ACCOUNT CRUD OPERATIONS ====================
 
-# CREATE Bank Account
 @router.post("/bank-accounts", response_model=BankAccountSchema, status_code=status.HTTP_201_CREATED)
 def create_bank_account(
     account_data: BankAccountCreate,
@@ -61,12 +82,10 @@ def create_bank_account(
     """Create a new bank account (Admin only)"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == account_data.branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Check if account number already exists for this branch
         existing_account = db.query(BankAccount).filter(
             BankAccount.branch_id == account_data.branch_id,
             BankAccount.account_number == account_data.account_number
@@ -78,7 +97,6 @@ def create_bank_account(
                 detail=f"Account number {account_data.account_number} already exists for this branch"
             )
         
-        # Create new bank account
         new_account = BankAccount(
             branch_id=account_data.branch_id,
             bank_name=account_data.bank_name,
@@ -94,7 +112,6 @@ def create_bank_account(
         db.commit()
         db.refresh(new_account)
         
-        # Prepare response with branch name
         return {
             "id": new_account.id,
             "branch_id": new_account.branch_id,
@@ -119,7 +136,6 @@ def create_bank_account(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to create bank account: {str(e)}")
 
-# GET all Bank Accounts
 @router.get("/bank-accounts", response_model=List[BankAccountSchema])
 def get_bank_accounts(
     branch_id: Optional[int] = None,
@@ -127,13 +143,11 @@ def get_bank_accounts(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get all bank accounts (Admin sees all, Salesman sees only their branch)"""
+    """Get all bank accounts"""
     
     query = db.query(BankAccount)
     
-    # Apply filters
     if current_user.role == "salesman":
-        # Salesman can only see their branch's accounts
         if not current_user.branch_id:
             return []
         query = query.filter(BankAccount.branch_id == current_user.branch_id)
@@ -145,7 +159,6 @@ def get_bank_accounts(
     
     accounts = query.order_by(BankAccount.bank_name, BankAccount.account_number).all()
     
-    # Prepare response with branch names
     result = []
     for account in accounts:
         branch = db.query(Branch).filter(Branch.id == account.branch_id).first()
@@ -166,7 +179,6 @@ def get_bank_accounts(
     
     return result
 
-# GET single Bank Account
 @router.get("/bank-accounts/{account_id}", response_model=BankAccountSchema)
 def get_bank_account(
     account_id: int,
@@ -179,7 +191,6 @@ def get_bank_account(
     if not account:
         raise HTTPException(status_code=404, detail="Bank account not found")
     
-    # Check permissions
     if current_user.role == "salesman" and account.branch_id != current_user.branch_id:
         raise HTTPException(
             status_code=403,
@@ -203,7 +214,6 @@ def get_bank_account(
         "updated_at": account.updated_at
     }
 
-# UPDATE Bank Account
 @router.put("/bank-accounts/{account_id}", response_model=BankAccountSchema)
 def update_bank_account(
     account_id: int,
@@ -218,7 +228,6 @@ def update_bank_account(
         raise HTTPException(status_code=404, detail="Bank account not found")
     
     try:
-        # Update fields
         update_data = account_update.dict(exclude_unset=True)
         for field, value in update_data.items():
             setattr(account, field, value)
@@ -249,7 +258,6 @@ def update_bank_account(
         print(f"Error updating bank account: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to update bank account: {str(e)}")
 
-# DELETE Bank Account (Soft delete - just deactivate)
 @router.delete("/bank-accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_bank_account(
     account_id: int,
@@ -263,7 +271,6 @@ def delete_bank_account(
         raise HTTPException(status_code=404, detail="Bank account not found")
     
     try:
-        # Soft delete - just deactivate
         account.is_active = False
         account.updated_at = datetime.now()
         db.commit()
@@ -274,7 +281,6 @@ def delete_bank_account(
         print(f"Error deleting bank account: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to delete bank account: {str(e)}")
 
-# Activate Bank Account
 @router.patch("/bank-accounts/{account_id}/activate", response_model=BankAccountSchema)
 def activate_bank_account(
     account_id: int,
@@ -315,9 +321,375 @@ def activate_bank_account(
         print(f"Error activating bank account: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to activate bank account: {str(e)}")
 
+# ==================== REFUND OPERATIONS ====================
+
+@router.post("/refunds", response_model=RefundResponse, status_code=status.HTTP_201_CREATED)
+def create_refund(
+    refund_data: RefundCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a new refund for a sale"""
+    
+    print(f"=== CREATE REFUND ===")
+    print(f"User: {current_user.id} - {current_user.name}")
+    print(f"Refund data: {refund_data}")
+    
+    try:
+        original_sale = db.query(Sale).filter(Sale.id == refund_data.original_sale_id).first()
+        if not original_sale:
+            raise HTTPException(status_code=404, detail="Original sale not found")
+        
+        if original_sale.status == "refunded":
+            raise HTTPException(status_code=400, detail="This sale has already been fully refunded")
+        
+        if current_user.role == "salesman" and original_sale.branch_id != current_user.branch_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Not authorized to refund sales from other branches"
+            )
+        
+        if refund_data.refund_method == "transfer":
+            if not refund_data.bank_account_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Bank account ID is required for transfer refunds"
+                )
+            
+            bank_account = db.query(BankAccount).filter(
+                BankAccount.id == refund_data.bank_account_id,
+                BankAccount.is_active == True
+            ).first()
+            
+            if not bank_account:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Bank account not found or inactive"
+                )
+        
+        total_refund_amount = Decimal('0')
+        refund_items = []
+        
+        for refund_item in refund_data.items:
+            sale_item = db.query(SaleItem).filter(SaleItem.id == refund_item.sale_item_id).first()
+            if not sale_item:
+                raise HTTPException(status_code=404, detail=f"Sale item {refund_item.sale_item_id} not found")
+            
+            if sale_item.sale_id != original_sale.id:
+                raise HTTPException(status_code=400, detail="Item does not belong to this sale")
+            
+            already_refunded = db.query(RefundItem).filter(
+                RefundItem.sale_item_id == sale_item.id
+            ).all()
+            
+            already_refunded_qty = sum(r.quantity for r in already_refunded)
+            max_refundable = sale_item.quantity - already_refunded_qty
+            
+            if refund_item.quantity > max_refundable:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Cannot refund {refund_item.quantity} of item {sale_item.id}. Max refundable: {max_refundable}"
+                )
+            
+            refund_amount = refund_item.quantity * sale_item.unit_price
+            total_refund_amount += refund_amount
+            
+            refund_items.append({
+                "sale_item": sale_item,
+                "quantity": refund_item.quantity,
+                "refund_amount": refund_amount,
+                "reason": refund_item.reason
+            })
+        
+        refund_number = generate_refund_number(db)
+        
+        refund = Refund(
+            refund_number=refund_number,
+            original_sale_id=original_sale.id,
+            branch_id=original_sale.branch_id,
+            user_id=current_user.id,
+            customer_name=original_sale.customer_name,
+            refund_amount=total_refund_amount,
+            refund_reason=refund_data.refund_reason,
+            refund_method=refund_data.refund_method,
+            bank_account_id=refund_data.bank_account_id,
+            transaction_reference=refund_data.transaction_reference,
+            status="completed",
+            notes=refund_data.notes,
+            completed_at=datetime.now()
+        )
+        db.add(refund)
+        db.flush()
+        
+        for item in refund_items:
+            refund_item = RefundItem(
+                refund_id=refund.id,
+                sale_item_id=item["sale_item"].id,
+                product_id=item["sale_item"].product_id,
+                quantity=item["quantity"],
+                unit_price=item["sale_item"].unit_price,
+                refund_amount=item["refund_amount"],
+                reason=item["reason"]
+            )
+            db.add(refund_item)
+            
+            stock = db.query(Stock).filter(
+                Stock.branch_id == original_sale.branch_id,
+                Stock.product_id == item["sale_item"].product_id
+            ).first()
+            
+            if stock:
+                stock.quantity += item["quantity"]
+                
+                stock_movement = StockMovement(
+                    branch_id=original_sale.branch_id,
+                    product_id=item["sale_item"].product_id,
+                    user_id=current_user.id,
+                    change_qty=item["quantity"],
+                    movement_type="refund",
+                    reference_id=refund.id,
+                    notes=f"Refund for sale {original_sale.invoice_number}"
+                )
+                db.add(stock_movement)
+        
+        original_sale.refund_amount += total_refund_amount
+        
+        if original_sale.refund_amount >= original_sale.total_amount:
+            original_sale.status = "refunded"
+            original_sale.refund_status = "completed"
+        else:
+            original_sale.status = "partially_refunded"
+            original_sale.refund_status = "partially_refunded"
+        
+        db.commit()
+        db.refresh(refund)
+        
+        branch = db.query(Branch).filter(Branch.id == refund.branch_id).first()
+        
+        response_items = []
+        for item in refund_items:
+            product = db.query(Product).filter(Product.id == item["sale_item"].product_id).first()
+            response_items.append({
+                "id": 0,
+                "sale_item_id": item["sale_item"].id,
+                "product_id": item["sale_item"].product_id,
+                "product_name": product.name if product else None,
+                "quantity": float(item["quantity"]),
+                "unit_price": float(item["sale_item"].unit_price),
+                "refund_amount": float(item["refund_amount"]),
+                "reason": item["reason"]
+            })
+        
+        bank_account_details = None
+        if refund.bank_account_id:
+            bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
+            if bank_account:
+                bank_account_details = {
+                    "id": bank_account.id,
+                    "bank_name": bank_account.bank_name,
+                    "account_number": bank_account.account_number,
+                    "account_name": bank_account.account_name
+                }
+        
+        print(f"Refund created successfully! Refund: {refund_number}, Amount: {float(total_refund_amount)}")
+        
+        return {
+            "id": refund.id,
+            "refund_number": refund.refund_number,
+            "original_sale_id": refund.original_sale_id,
+            "original_invoice_number": original_sale.invoice_number,
+            "branch_id": refund.branch_id,
+            "branch_name": branch.name if branch else None,
+            "user_id": refund.user_id,
+            "user_name": current_user.name,
+            "customer_name": refund.customer_name,
+            "refund_amount": float(refund.refund_amount),
+            "refund_reason": refund.refund_reason,
+            "refund_method": refund.refund_method,
+            "bank_account_id": refund.bank_account_id,
+            "bank_account_details": bank_account_details,
+            "transaction_reference": refund.transaction_reference,
+            "status": refund.status,
+            "approved_by": None,
+            "approved_at": None,
+            "created_at": refund.created_at,
+            "completed_at": refund.completed_at,
+            "notes": refund.notes,
+            "items": response_items
+        }
+        
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error creating refund: {str(e)}")
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@router.get("/refunds", response_model=List[RefundResponse])
+def get_refunds(
+    branch_id: Optional[int] = None,
+    sale_id: Optional[int] = None,
+    start_date: Optional[datetime] = None,
+    end_date: Optional[datetime] = None,
+    limit: int = Query(100, ge=1, le=500),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all refunds with filters"""
+    
+    query = db.query(Refund)
+    
+    if current_user.role == "salesman":
+        if not current_user.branch_id:
+            return []
+        query = query.filter(Refund.branch_id == current_user.branch_id)
+    elif branch_id:
+        query = query.filter(Refund.branch_id == branch_id)
+    
+    if sale_id:
+        query = query.filter(Refund.original_sale_id == sale_id)
+    
+    if start_date:
+        query = query.filter(Refund.created_at >= start_date)
+    if end_date:
+        query = query.filter(Refund.created_at <= end_date)
+    
+    refunds = query.order_by(Refund.created_at.desc()).limit(limit).all()
+    
+    result = []
+    for refund in refunds:
+        original_sale = db.query(Sale).filter(Sale.id == refund.original_sale_id).first()
+        branch = db.query(Branch).filter(Branch.id == refund.branch_id).first()
+        items = db.query(RefundItem).filter(RefundItem.refund_id == refund.id).all()
+        
+        response_items = []
+        for item in items:
+            product = db.query(Product).filter(Product.id == item.product_id).first()
+            response_items.append({
+                "id": item.id,
+                "sale_item_id": item.sale_item_id,
+                "product_id": item.product_id,
+                "product_name": product.name if product else None,
+                "quantity": float(item.quantity),
+                "unit_price": float(item.unit_price),
+                "refund_amount": float(item.refund_amount),
+                "reason": item.reason
+            })
+        
+        bank_account_details = None
+        if refund.bank_account_id:
+            bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
+            if bank_account:
+                bank_account_details = {
+                    "id": bank_account.id,
+                    "bank_name": bank_account.bank_name,
+                    "account_number": bank_account.account_number,
+                    "account_name": bank_account.account_name
+                }
+        
+        result.append({
+            "id": refund.id,
+            "refund_number": refund.refund_number,
+            "original_sale_id": refund.original_sale_id,
+            "original_invoice_number": original_sale.invoice_number if original_sale else None,
+            "branch_id": refund.branch_id,
+            "branch_name": branch.name if branch else None,
+            "user_id": refund.user_id,
+            "user_name": refund.user.name if refund.user else None,
+            "customer_name": refund.customer_name,
+            "refund_amount": float(refund.refund_amount),
+            "refund_reason": refund.refund_reason,
+            "refund_method": refund.refund_method,
+            "bank_account_id": refund.bank_account_id,
+            "bank_account_details": bank_account_details,
+            "transaction_reference": refund.transaction_reference,
+            "status": refund.status,
+            "approved_by": refund.approver.name if refund.approver else None,
+            "approved_at": refund.approved_at,
+            "created_at": refund.created_at,
+            "completed_at": refund.completed_at,
+            "notes": refund.notes,
+            "items": response_items
+        })
+    
+    return result
+
+@router.get("/refunds/{refund_id}", response_model=RefundResponse)
+def get_refund(
+    refund_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get a single refund by ID"""
+    
+    refund = db.query(Refund).filter(Refund.id == refund_id).first()
+    if not refund:
+        raise HTTPException(status_code=404, detail="Refund not found")
+    
+    if current_user.role == "salesman" and refund.branch_id != current_user.branch_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Not authorized to view this refund"
+        )
+    
+    original_sale = db.query(Sale).filter(Sale.id == refund.original_sale_id).first()
+    branch = db.query(Branch).filter(Branch.id == refund.branch_id).first()
+    items = db.query(RefundItem).filter(RefundItem.refund_id == refund.id).all()
+    
+    response_items = []
+    for item in items:
+        product = db.query(Product).filter(Product.id == item.product_id).first()
+        response_items.append({
+            "id": item.id,
+            "sale_item_id": item.sale_item_id,
+            "product_id": item.product_id,
+            "product_name": product.name if product else None,
+            "quantity": float(item.quantity),
+            "unit_price": float(item.unit_price),
+            "refund_amount": float(item.refund_amount),
+            "reason": item.reason
+        })
+    
+    bank_account_details = None
+    if refund.bank_account_id:
+        bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
+        if bank_account:
+            bank_account_details = {
+                "id": bank_account.id,
+                "bank_name": bank_account.bank_name,
+                "account_number": bank_account.account_number,
+                "account_name": bank_account.account_name
+            }
+    
+    return {
+        "id": refund.id,
+        "refund_number": refund.refund_number,
+        "original_sale_id": refund.original_sale_id,
+        "original_invoice_number": original_sale.invoice_number if original_sale else None,
+        "branch_id": refund.branch_id,
+        "branch_name": branch.name if branch else None,
+        "user_id": refund.user_id,
+        "user_name": refund.user.name if refund.user else None,
+        "customer_name": refund.customer_name,
+        "refund_amount": float(refund.refund_amount),
+        "refund_reason": refund.refund_reason,
+        "refund_method": refund.refund_method,
+        "bank_account_id": refund.bank_account_id,
+        "bank_account_details": bank_account_details,
+        "transaction_reference": refund.transaction_reference,
+        "status": refund.status,
+        "approved_by": refund.approver.name if refund.approver else None,
+        "approved_at": refund.approved_at,
+        "created_at": refund.created_at,
+        "completed_at": refund.completed_at,
+        "notes": refund.notes,
+        "items": response_items
+    }
+
 # ==================== SALE OPERATIONS ====================
 
-# POST - Create sale with enhanced features
 @router.post("", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
 @router.post("/", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
 def create_sale(
@@ -332,7 +704,6 @@ def create_sale(
     print(f"Sale data: {sale_data}")
     
     try:
-        # Determine branch
         branch_id = sale_data.branch_id or current_user.branch_id
         
         if not branch_id:
@@ -343,19 +714,16 @@ def create_sale(
         
         print(f"Branch ID: {branch_id}")
         
-        # Check if salesman has access to this branch
         if current_user.role == "salesman" and current_user.branch_id != branch_id:
             raise HTTPException(
                 status_code=403,
                 detail="Not authorized to sell from this branch"
             )
         
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Validate bank account if payment method is transfer
         if sale_data.payment_method == "transfer":
             if not sale_data.bank_account_id:
                 raise HTTPException(
@@ -375,29 +743,24 @@ def create_sale(
                     detail="Bank account not found or inactive"
                 )
         
-        # Calculate subtotal from items
         subtotal = Decimal('0')
         total_cost = Decimal('0')
         sale_items = []
         
-        # Process each item
         for idx, item_data in enumerate(sale_data.items):
             print(f"Processing item {idx}: product_id={item_data.product_id}, quantity={item_data.quantity}, price={item_data.unit_price}")
             
-            # Get product
             product = db.query(Product).filter(Product.id == item_data.product_id).first()
             if not product:
                 raise HTTPException(status_code=404, detail=f"Product {item_data.product_id} not found")
             
             print(f"Product found: {product.name}, cost={product.cost}")
             
-            # Convert to Decimal for consistent math
             quantity_decimal = Decimal(str(item_data.quantity))
             unit_price_decimal = Decimal(str(item_data.unit_price))
             product_cost_decimal = Decimal(str(product.cost))
             item_discount = Decimal(str(item_data.discount_amount)) if item_data.discount_amount else Decimal('0')
             
-            # Check stock
             stock = db.query(Stock).filter(
                 Stock.branch_id == branch_id,
                 Stock.product_id == item_data.product_id
@@ -405,7 +768,6 @@ def create_sale(
             
             if not stock:
                 print(f"No stock record found for product {item_data.product_id} in branch {branch_id}")
-                # Create stock record if it doesn't exist
                 stock = Stock(
                     branch_id=branch_id,
                     product_id=item_data.product_id,
@@ -421,7 +783,6 @@ def create_sale(
                     detail=f"Insufficient stock for {product.name}. Available: {float(stock.quantity)}, Requested: {float(quantity_decimal)}"
                 )
             
-            # Calculate line total with discount
             line_subtotal = quantity_decimal * unit_price_decimal
             line_total = line_subtotal - item_discount
             line_cost = quantity_decimal * product_cost_decimal
@@ -429,11 +790,9 @@ def create_sale(
             subtotal += line_subtotal
             total_cost += line_cost
             
-            # Update stock
             stock.quantity = stock.quantity - quantity_decimal
             print(f"Stock updated: new quantity = {stock.quantity}")
             
-            # Record stock movement
             stock_movement = StockMovement(
                 branch_id=branch_id,
                 product_id=item_data.product_id,
@@ -452,11 +811,9 @@ def create_sale(
                 "line_total": line_total
             })
         
-        # Calculate tax and final total
         tax_rate = Decimal(str(sale_data.tax_rate)) / Decimal('100')
         tax_amount = subtotal * tax_rate if sale_data.tax_rate > 0 else Decimal('0')
         
-        # Apply global discount
         global_discount = Decimal(str(sale_data.discount_amount))
         if sale_data.discount_type == "percentage":
             global_discount = subtotal * (Decimal(str(sale_data.discount_amount)) / Decimal('100'))
@@ -465,10 +822,8 @@ def create_sale(
         
         total_amount = subtotal + tax_amount + shipping_cost - global_discount
         
-        # Generate invoice number
         invoice_number = generate_invoice_number(db)
         
-        # Create sale record
         sale = Sale(
             invoice_number=invoice_number,
             branch_id=branch_id,
@@ -495,7 +850,6 @@ def create_sale(
         db.add(sale)
         db.flush()
         
-        # Create sale items
         for item in sale_items:
             sale_item = SaleItem(
                 sale_id=sale.id,
@@ -510,7 +864,6 @@ def create_sale(
         db.commit()
         db.refresh(sale)
         
-        # Prepare response
         response_items = []
         for item in sale_items:
             response_items.append({
@@ -525,7 +878,6 @@ def create_sale(
                 "line_total": float(item["line_total"])
             })
         
-        # Get bank account details if applicable
         bank_account_details = None
         if sale.bank_account_id:
             bank_account = db.query(BankAccount).filter(BankAccount.id == sale.bank_account_id).first()
@@ -579,7 +931,6 @@ def create_sale(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# GET - Get all sales with enhanced response
 @router.get("", response_model=List[SaleResponse])
 @router.get("/", response_model=List[SaleResponse])
 def get_sales(
@@ -597,9 +948,7 @@ def get_sales(
     
     query = db.query(Sale)
     
-    # Apply filters
     if current_user.role == "salesman":
-        # Salesman can only see their own branch
         if branch_id and branch_id != current_user.branch_id:
             raise HTTPException(
                 status_code=403,
@@ -625,7 +974,6 @@ def get_sales(
     
     sales = query.order_by(Sale.created_at.desc()).limit(limit).all()
     
-    # Load items and bank account details for each sale
     result = []
     for sale in sales:
         items = db.query(SaleItem).filter(SaleItem.sale_id == sale.id).all()
@@ -687,7 +1035,6 @@ def get_sales(
     
     return result
 
-# GET by ID with enhanced response
 @router.get("/{sale_id}", response_model=SaleResponse)
 def get_sale(
     sale_id: int,
@@ -700,7 +1047,6 @@ def get_sale(
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
     
-    # Check permissions
     if current_user.role == "salesman" and sale.branch_id != current_user.branch_id:
         raise HTTPException(
             status_code=403,
@@ -764,7 +1110,6 @@ def get_sale(
         ]
     }
 
-# Update sale (e.g., add notes, update customer info)
 @router.put("/{sale_id}", response_model=SaleResponse)
 def update_sale(
     sale_id: int,
@@ -778,14 +1123,12 @@ def update_sale(
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
     
-    # Check permissions
     if current_user.role == "salesman" and sale.branch_id != current_user.branch_id:
         raise HTTPException(
             status_code=403,
             detail="Not authorized to update this sale"
         )
     
-    # Only allow updating certain fields
     allowed_fields = ["customer_name", "customer_phone", "customer_email", "notes"]
     for field in allowed_fields:
         if field in sale_update:
@@ -796,7 +1139,6 @@ def update_sale(
     
     return get_sale(sale_id, db, current_user)
 
-# Get sales summary by payment method
 @router.get("/summary/payment-methods")
 def get_sales_by_payment_method(
     branch_id: Optional[int] = None,
@@ -821,7 +1163,6 @@ def get_sales_by_payment_method(
     
     sales = query.all()
     
-    # Group by payment method
     summary = {}
     for sale in sales:
         method = sale.payment_method
@@ -837,7 +1178,6 @@ def get_sales_by_payment_method(
     
     return summary
 
-# Get sales summary by status
 @router.get("/summary/status")
 def get_sales_by_status(
     branch_id: Optional[int] = None,
@@ -862,7 +1202,6 @@ def get_sales_by_status(
     
     sales = query.all()
     
-    # Group by status
     summary = {}
     for sale in sales:
         status = sale.status
