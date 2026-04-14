@@ -153,7 +153,7 @@ app.include_router(settings_router)
 # ==================== TEST EMAIL ENDPOINT ====================
 @app.post("/api/test/email")
 def test_email(
-    db: Session = Depends(get_db),
+   
     current_user: User = Depends(get_current_user)
 ):
     """Test email sending (Admin only)"""
