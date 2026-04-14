@@ -76,3 +76,122 @@ def delete_product(
     if not success:
         raise HTTPException(status_code=404, detail="Product not found")
     return None
+
+
+# POST - Initialize stock for all existing products
+@router.post("/initialize-stock", status_code=status.HTTP_200_OK)
+def initialize_stock_for_all_products(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Initialize stock records for all products in all branches (Admin only)"""
+    try:
+        # Get all products
+        products = ProductService.get_products(db, active=None)
+        
+        # Get all branches
+        branches = db.query(Branch).all()
+        
+        results = {
+            "total_products": len(products),
+            "total_branches": len(branches),
+            "stock_records_created": 0,
+            "stock_records_skipped": 0,
+            "errors": []
+        }
+        
+        for product in products:
+            for branch in branches:
+                try:
+                    # Check if stock already exists
+                    existing_stock = StockService.get_stock(db, branch.id, product.id)
+                    if not existing_stock:
+                        # Create stock record with 0 quantity
+                        stock = StockService.add_stock(
+                            db=db,
+                            branch_id=branch.id,
+                            product_id=product.id,
+                            quantity=0,
+                            user_id=current_user.id,
+                            notes=f"Bulk initialization: Stock record for product {product.name}"
+                        )
+                        results["stock_records_created"] += 1
+                    else:
+                        results["stock_records_skipped"] += 1
+                except Exception as e:
+                    results["errors"].append({
+                        "product_id": product.id,
+                        "product_name": product.name,
+                        "branch_id": branch.id,
+                        "branch_name": branch.name,
+                        "error": str(e)
+                    })
+        
+        return {
+            "message": "Stock initialization completed",
+            "results": results
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize stock: {str(e)}")
+
+
+# POST - Initialize stock for a single product in all branches
+@router.post("/{product_id}/initialize-stock", status_code=status.HTTP_200_OK)
+def initialize_stock_for_product(
+    product_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin)
+):
+    """Initialize stock records for a specific product in all branches (Admin only)"""
+    try:
+        # Check if product exists
+        product = ProductService.get_product(db, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Get all branches
+        branches = db.query(Branch).all()
+        
+        results = {
+            "product_id": product_id,
+            "product_name": product.name,
+            "total_branches": len(branches),
+            "stock_records_created": 0,
+            "stock_records_existing": 0,
+            "errors": []
+        }
+        
+        for branch in branches:
+            try:
+                # Check if stock already exists
+                existing_stock = StockService.get_stock(db, branch.id, product_id)
+                if not existing_stock:
+                    # Create stock record with 0 quantity
+                    stock = StockService.add_stock(
+                        db=db,
+                        branch_id=branch.id,
+                        product_id=product_id,
+                        quantity=0,
+                        user_id=current_user.id,
+                        notes=f"Initialized stock record for product: {product.name}"
+                    )
+                    results["stock_records_created"] += 1
+                else:
+                    results["stock_records_existing"] += 1
+            except Exception as e:
+                results["errors"].append({
+                    "branch_id": branch.id,
+                    "branch_name": branch.name,
+                    "error": str(e)
+                })
+        
+        return {
+            "message": f"Stock initialization completed for product {product.name}",
+            "results": results
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to initialize stock: {str(e)}")

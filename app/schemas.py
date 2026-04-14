@@ -4,6 +4,52 @@ from datetime import datetime, date
 from typing import Optional, List, Any
 from decimal import Decimal
 
+# ==================== ENUMS ====================
+class PurchaseStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+    PARTIALLY_RECEIVED = "partially_received"
+
+class LoanStatus(str, Enum):
+    ACTIVE = "active"
+    PARTIALLY_PAID = "partially_paid"
+    SETTLED = "settled"
+    OVERDUE = "overdue"
+    CANCELLED = "cancelled"
+
+class LoanPaymentMethod(str, Enum):
+    CASH = "cash"
+    TICKET = "ticket"
+    COUPON = "coupon"
+    MIXED = "mixed"
+
+class SaleStatus(str, Enum):
+    COMPLETED = "completed"
+    REFUNDED = "refunded"
+    PARTIALLY_REFUNDED = "partially_refunded"
+    CANCELLED = "cancelled"
+
+class PaymentMethod(str, Enum):
+    CASH = "cash"
+    TRANSFER = "transfer"
+    CREDIT_CARD = "credit_card"
+    DEBIT_CARD = "debit_card"
+    MOBILE_MONEY = "mobile_money"
+    COUPON = "coupon"
+    MIXED = "mixed"
+
+class RefundStatus(str, Enum):
+    NONE = "none"
+    PENDING = "pending"
+    APPROVED = "approved"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+
+class DiscountType(str, Enum):
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
+
 # ==================== BRANCH SCHEMAS ====================
 class BranchBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=255)
@@ -21,6 +67,39 @@ class BranchUpdate(BaseModel):
 class Branch(BranchBase):
     id: int
     created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+# ==================== BANK ACCOUNT SCHEMAS ====================
+class BankAccountBase(BaseModel):
+    bank_name: str = Field(..., min_length=1, max_length=100)
+    account_number: str = Field(..., min_length=1, max_length=50)
+    account_name: str = Field(..., min_length=1, max_length=255)
+    account_type: str = Field(default="checking", pattern="^(checking|savings|business)$")
+    currency: str = Field(default="ETB", min_length=3, max_length=3)
+    is_active: bool = True
+    notes: Optional[str] = None
+
+class BankAccountCreate(BankAccountBase):
+    branch_id: int
+
+class BankAccountUpdate(BaseModel):
+    bank_name: Optional[str] = Field(None, min_length=1, max_length=100)
+    account_number: Optional[str] = Field(None, min_length=1, max_length=50)
+    account_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    account_type: Optional[str] = Field(None, pattern="^(checking|savings|business)$")
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+class BankAccount(BankAccountBase):
+    id: int
+    branch_id: int
+    branch_name: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
     
     class Config:
         from_attributes = True
@@ -118,13 +197,169 @@ class StockResponse(BaseModel):
     status: str  # "normal", "low", "out_of_stock"
 
 
-# ==================== SALE SCHEMAS ====================
+# ==================== ENHANCED SALE SCHEMAS ====================
 class SaleItemCreate(BaseModel):
     product_id: int
     quantity: float = Field(..., gt=0)
     unit_price: float = Field(..., gt=0)
+    discount_amount: float = Field(default=0, ge=0)
 
-class SaleItem(BaseModel):
+class SaleItemUpdate(BaseModel):
+    quantity: Optional[float] = Field(None, gt=0)
+    discount_amount: Optional[float] = Field(None, ge=0)
+
+class SaleItemResponse(BaseModel):
+    id: int
+    sale_id: int
+    product_id: int
+    product_name: Optional[str] = None
+    product_sku: Optional[str] = None
+    quantity: float
+    unit_price: float
+    discount_amount: float
+    line_total: float
+    
+    class Config:
+        from_attributes = True
+
+class SaleCreate(BaseModel):
+    branch_id: Optional[int] = None
+    customer_name: Optional[str] = Field(None, max_length=255)
+    customer_phone: Optional[str] = Field(None, max_length=50)
+    customer_email: Optional[EmailStr] = None
+    items: List[SaleItemCreate] = Field(..., min_length=1)
+    tax_rate: float = Field(default=15, ge=0, le=100)
+    discount_amount: float = Field(default=0, ge=0)
+    discount_type: DiscountType = Field(default=DiscountType.PERCENTAGE)
+    shipping_cost: float = Field(default=0, ge=0)
+    payment_method: PaymentMethod = Field(default=PaymentMethod.CASH)
+    bank_account_id: Optional[int] = None
+    transaction_reference: Optional[str] = Field(None, max_length=100)
+    notes: Optional[str] = None
+
+class SaleUpdate(BaseModel):
+    customer_name: Optional[str] = Field(None, max_length=255)
+    customer_phone: Optional[str] = Field(None, max_length=50)
+    customer_email: Optional[EmailStr] = None
+    notes: Optional[str] = None
+
+class SaleResponse(BaseModel):
+    id: int
+    invoice_number: str
+    branch_id: int
+    branch_name: Optional[str] = None
+    user_id: int
+    user_name: Optional[str] = None
+    customer_name: Optional[str]
+    customer_phone: Optional[str]
+    customer_email: Optional[str]
+    
+    # Financial fields
+    subtotal: float
+    tax_amount: float
+    tax_rate: float
+    discount_amount: float
+    discount_type: DiscountType
+    shipping_cost: float
+    total_amount: float
+    total_cost: float
+    
+    # Payment fields
+    payment_method: PaymentMethod
+    bank_account_id: Optional[int]
+    bank_account_details: Optional[BankAccount] = None
+    transaction_reference: Optional[str]
+    
+    # Status fields
+    status: SaleStatus
+    refund_amount: float
+    refund_status: RefundStatus
+    
+    # Timestamps
+    created_at: datetime
+    updated_at: Optional[datetime]
+    notes: Optional[str]
+    items: List[SaleItemResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+
+# ==================== REFUND SCHEMAS ====================
+class RefundItemCreate(BaseModel):
+    sale_item_id: int
+    quantity: float = Field(..., gt=0)
+    reason: Optional[str] = None
+
+class RefundCreate(BaseModel):
+    original_sale_id: int
+    refund_reason: str = Field(..., min_length=1)
+    refund_method: PaymentMethod = Field(default=PaymentMethod.ORIGINAL_METHOD)
+    bank_account_id: Optional[int] = None
+    transaction_reference: Optional[str] = Field(None, max_length=100)
+    items: List[RefundItemCreate] = Field(..., min_length=1)
+    notes: Optional[str] = None
+
+class RefundItemResponse(BaseModel):
+    id: int
+    sale_item_id: int
+    product_id: int
+    product_name: Optional[str] = None
+    quantity: float
+    unit_price: float
+    refund_amount: float
+    reason: Optional[str]
+    
+    class Config:
+        from_attributes = True
+
+class RefundResponse(BaseModel):
+    id: int
+    refund_number: str
+    original_sale_id: int
+    original_invoice_number: Optional[str] = None
+    branch_id: int
+    branch_name: Optional[str] = None
+    user_id: int
+    user_name: Optional[str] = None
+    customer_name: Optional[str]
+    
+    # Refund details
+    refund_amount: float
+    refund_reason: str
+    refund_method: PaymentMethod
+    
+    # Bank transfer details
+    bank_account_id: Optional[int]
+    bank_account_details: Optional[BankAccount] = None
+    transaction_reference: Optional[str]
+    
+    # Status
+    status: str  # pending, approved, completed, rejected
+    approved_by: Optional[str]
+    approved_at: Optional[datetime]
+    
+    # Timestamps
+    created_at: datetime
+    completed_at: Optional[datetime]
+    notes: Optional[str]
+    items: List[RefundItemResponse] = []
+    
+    class Config:
+        from_attributes = True
+
+class RefundApprove(BaseModel):
+    approved: bool = True
+    notes: Optional[str] = None
+
+
+# ==================== LEGACY SALE SCHEMAS (Keep for backward compatibility) ====================
+class LegacySaleItemCreate(BaseModel):
+    product_id: int
+    quantity: float = Field(..., gt=0)
+    unit_price: float = Field(..., gt=0)
+
+class LegacySaleItem(BaseModel):
     id: int
     sale_id: int
     product_id: int
@@ -135,12 +370,12 @@ class SaleItem(BaseModel):
     class Config:
         from_attributes = True
 
-class SaleCreate(BaseModel):
+class LegacySaleCreate(BaseModel):
     branch_id: Optional[int] = None
     customer_name: Optional[str] = None
-    items: List[SaleItemCreate] = Field(..., min_length=1)
+    items: List[LegacySaleItemCreate] = Field(..., min_length=1)
 
-class Sale(BaseModel):
+class LegacySale(BaseModel):
     id: int
     branch_id: int
     user_id: int
@@ -148,7 +383,7 @@ class Sale(BaseModel):
     total_amount: float
     total_cost: float
     created_at: datetime
-    items: List[SaleItem] = []
+    items: List[LegacySaleItem] = []
     
     class Config:
         from_attributes = True
@@ -222,27 +457,6 @@ class TokenData(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
-
-
-# ==================== NEW ENUMS ====================
-class PurchaseStatus(str, Enum):
-    PENDING = "pending"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-    PARTIALLY_RECEIVED = "partially_received"
-
-class LoanStatus(str, Enum):
-    ACTIVE = "active"
-    PARTIALLY_PAID = "partially_paid"
-    SETTLED = "settled"
-    OVERDUE = "overdue"
-    CANCELLED = "cancelled"
-
-class LoanPaymentMethod(str, Enum):
-    CASH = "cash"
-    TICKET = "ticket"
-    COUPON = "coupon"
-    MIXED = "mixed"
 
 
 # ==================== DATE RANGE SCHEMA ====================
@@ -428,7 +642,7 @@ class CombinedSalesReport(BaseModel):
     date_range: DateRange
     total_sales: float
     total_cash_sales: float
-    total_ticket_sales: float
+    total_transfer_sales: float
     total_coupons_used: int
     total_tickets_used: int
     total_orders: int
@@ -438,10 +652,10 @@ class CombinedSalesReport(BaseModel):
     ticket_summary: TicketSummary
     loan_summary: Optional[LoanReport] = None
     loan_repayments: float = 0
-    
-    
-# Add these schemas to your schemas.py
+    payment_method_breakdown: dict = {}
 
+
+# ==================== TEMP ITEM SCHEMAS ====================
 class TempItemStatus(str, Enum):
     PENDING = "pending"
     RECEIVED = "received"
@@ -473,10 +687,10 @@ class TempItemResponse(TempItemBase):
     received_at: Optional[datetime] = None
     
     class Config:
-        from_attributes = True    
-        
-        # ==================== SETTINGS SCHEMAS ====================
+        from_attributes = True
 
+
+# ==================== SETTINGS SCHEMAS ====================
 class SystemSettingBase(BaseModel):
     category: str = Field(..., min_length=1, max_length=50)
     key: str = Field(..., min_length=1, max_length=100)
@@ -531,6 +745,7 @@ class GeneralSettingsUpdate(BaseModel):
     date_format: str = Field(default="YYYY-MM-DD")
     currency: str = Field(default="ETB")
     language: str = Field(default="en")
+    default_tax_rate: float = Field(default=15, ge=0, le=100)
 
 class CouponSettingsUpdate(BaseModel):
     auto_reset: bool = True
@@ -565,12 +780,10 @@ class SystemInfoResponse(BaseModel):
     uptime_days: int
     last_backup: Optional[str] = None
     cache_size_mb: float
-    
-    
-    
-    # Add to schemas.py
+
+
+# ==================== USER PROFILE SCHEMA ====================
 class UserProfileUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=255)
     email: Optional[EmailStr] = None
     password: Optional[str] = Field(None, min_length=6)
-        

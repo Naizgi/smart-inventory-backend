@@ -16,12 +16,20 @@ from app.schemas import (
 import json
 import os
 import bcrypt
+import secrets
+import random
+import string
 
 # Password context for hashing - with fallback handling
 pwd_context = CryptContext(
     schemes=["bcrypt"],
     deprecated="auto"
 )
+
+# In-memory storage for OTPs (use Redis in production)
+# Structure: {email: {'otp': '123456', 'expires_at': datetime, 'attempts': 0, 'last_request_at': datetime}}
+otp_storage = {}
+password_reset_tokens = {}  # {reset_token: {'email': email, 'expires_at': datetime}}
 
 # ==================== AUTH SERVICE ====================
 class AuthService:
@@ -109,6 +117,293 @@ class AuthService:
         except JWTError as e:
             print("❌ JWT decode error:", e)
             return None
+    
+    # ==================== PASSWORD RESET METHODS ====================
+    
+    @staticmethod
+    def generate_otp() -> str:
+        """Generate a 6-digit OTP"""
+        return ''.join(random.choices(string.digits, k=6))
+    
+    @staticmethod
+    def generate_reset_token() -> str:
+        """Generate a secure reset token"""
+        return secrets.token_urlsafe(32)
+    
+    @staticmethod
+    def is_admin_email(db: Session, email: str) -> bool:
+        """Check if the email belongs to an admin user"""
+        user = db.query(User).filter(
+            User.email == email,
+            User.role == 'admin'
+        ).first()
+        return user is not None and user.active
+    
+    @staticmethod
+    def send_otp_email(email: str, otp: str):
+        """Send OTP to email - Implement with your email service"""
+        # For development, just print/log the OTP
+        print(f"[DEV] OTP for {email}: {otp}")
+        
+        # TODO: Uncomment and configure for production email sending
+        # Production email sending is commented out to avoid syntax errors
+        # When ready to use email, uncomment the code below and configure SMTP settings
+        """
+        import smtplib
+        from email.mime.text import MIMEText
+        from email.mime.multipart import MIMEMultipart
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = settings.SMTP_FROM_EMAIL
+            msg['To'] = email
+            msg['Subject'] = "Password Reset OTP - Inventory System"
+            
+            # Simple HTML body
+            html_body = f'''
+            <html>
+            <body style="font-family: Arial, sans-serif;">
+                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                    <h2 style="color: #2FB8A6;">Password Reset Request</h2>
+                    <p>You requested to reset your password. Use the following OTP to proceed:</p>
+                    <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                        {otp}
+                    </div>
+                    <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+                    <p>If you didn't request this, please ignore this email.</p>
+                    <hr>
+                    <p style="color: #666; font-size: 12px;">Inventory System - Secure Password Recovery</p>
+                </div>
+            </body>
+            </html>
+            '''
+            
+            msg.attach(MIMEText(html_body, 'html'))
+            
+            with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+            
+            print(f"Email sent successfully to {email}")
+        except Exception as e:
+            print(f"Failed to send email to {email}: {e}")
+            print(f"OTP for {email}: {otp}")
+        """
+        
+        return True
+    
+    @staticmethod
+    def request_password_reset(db: Session, email: str) -> Dict[str, Any]:
+        """Request password reset - sends OTP to admin email"""
+        # Check if email exists and is admin
+        if not AuthService.is_admin_email(db, email):
+            return {
+                "success": False,
+                "message": "Email not found or not authorized for password reset"
+            }
+        
+        # Generate OTP
+        otp = AuthService.generate_otp()
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        # Store OTP
+        otp_storage[email] = {
+            'otp': otp,
+            'expires_at': expires_at,
+            'attempts': 0
+        }
+        
+        # Send OTP via email
+        AuthService.send_otp_email(email, otp)
+        
+        return {
+            "success": True,
+            "message": "OTP has been sent to your email address"
+        }
+    
+    @staticmethod
+    def verify_otp(db: Session, email: str, otp: str) -> Dict[str, Any]:
+        """Verify OTP and return reset token"""
+        # Check if email exists in OTP storage
+        if email not in otp_storage:
+            return {
+                "success": False,
+                "message": "No OTP request found for this email",
+                "resetToken": None
+            }
+        
+        stored_data = otp_storage[email]
+        
+        # Check if OTP is expired
+        if datetime.utcnow() > stored_data['expires_at']:
+            # Clean up expired OTP
+            del otp_storage[email]
+            return {
+                "success": False,
+                "message": "OTP has expired. Please request a new one.",
+                "resetToken": None
+            }
+        
+        # Check attempts (max 5 attempts)
+        if stored_data['attempts'] >= 5:
+            del otp_storage[email]
+            return {
+                "success": False,
+                "message": "Too many failed attempts. Please request a new OTP.",
+                "resetToken": None
+            }
+        
+        # Verify OTP
+        if stored_data['otp'] != otp:
+            stored_data['attempts'] += 1
+            remaining_attempts = 5 - stored_data['attempts']
+            return {
+                "success": False,
+                "message": f"Invalid OTP. {remaining_attempts} attempts remaining.",
+                "resetToken": None
+            }
+        
+        # Generate reset token
+        reset_token = AuthService.generate_reset_token()
+        password_reset_tokens[reset_token] = {
+            'email': email,
+            'expires_at': datetime.utcnow() + timedelta(minutes=30)
+        }
+        
+        # Clean up OTP
+        del otp_storage[email]
+        
+        return {
+            "success": True,
+            "message": "OTP verified successfully",
+            "resetToken": reset_token
+        }
+    
+    @staticmethod
+    def resend_otp(db: Session, email: str) -> Dict[str, Any]:
+        """Resend OTP to email"""
+        # Check if email exists and is admin
+        if not AuthService.is_admin_email(db, email):
+            return {
+                "success": False,
+                "message": "Email not found or not authorized"
+            }
+        
+        # Check for rate limiting (prevent spam)
+        if email in otp_storage:
+            last_request = otp_storage[email].get('last_request_at')
+            if last_request:
+                time_since_last = datetime.utcnow() - last_request
+                if time_since_last < timedelta(seconds=60):
+                    remaining = 60 - time_since_last.seconds
+                    return {
+                        "success": False,
+                        "message": f"Please wait {remaining} seconds before requesting another OTP"
+                    }
+        
+        # Generate new OTP
+        otp = AuthService.generate_otp()
+        expires_at = datetime.utcnow() + timedelta(minutes=10)
+        
+        # Update storage
+        otp_storage[email] = {
+            'otp': otp,
+            'expires_at': expires_at,
+            'attempts': 0,
+            'last_request_at': datetime.utcnow()
+        }
+        
+        # Send OTP via email
+        AuthService.send_otp_email(email, otp)
+        
+        return {
+            "success": True,
+            "message": "New OTP has been sent to your email address"
+        }
+    
+    @staticmethod
+    def reset_password(db: Session, email: str, reset_token: str, new_password: str) -> Dict[str, Any]:
+        """Reset password using valid reset token"""
+        # Check if reset token exists and is valid
+        if reset_token not in password_reset_tokens:
+            return {
+                "success": False,
+                "message": "Invalid or expired reset token"
+            }
+        
+        token_data = password_reset_tokens[reset_token]
+        
+        # Check if token is expired
+        if datetime.utcnow() > token_data['expires_at']:
+            del password_reset_tokens[reset_token]
+            return {
+                "success": False,
+                "message": "Reset token has expired. Please request a new OTP."
+            }
+        
+        # Verify email matches
+        if token_data['email'] != email:
+            return {
+                "success": False,
+                "message": "Email mismatch"
+            }
+        
+        # Get user
+        user = db.query(User).filter(
+            User.email == email,
+            User.role == 'admin'
+        ).first()
+        
+        if not user:
+            return {
+                "success": False,
+                "message": "User not found"
+            }
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            return {
+                "success": False,
+                "message": "Password must be at least 8 characters long"
+            }
+        
+        # Hash the new password
+        user.password_hash = AuthService.get_password_hash(new_password)
+        
+        # Save to database
+        db.commit()
+        db.refresh(user)
+        
+        # Clean up used token
+        del password_reset_tokens[reset_token]
+        
+        # Optional: Clean up any existing OTP for this email
+        if email in otp_storage:
+            del otp_storage[email]
+        
+        return {
+            "success": True,
+            "message": "Password reset successful. You can now login with your new password."
+        }
+    
+    @staticmethod
+    def cleanup_expired_otps():
+        """Remove expired OTPs from storage"""
+        current_time = datetime.utcnow()
+        expired_emails = [
+            email for email, data in otp_storage.items()
+            if data['expires_at'] < current_time
+        ]
+        for email in expired_emails:
+            del otp_storage[email]
+        
+        expired_tokens = [
+            token for token, data in password_reset_tokens.items()
+            if data['expires_at'] < current_time
+        ]
+        for token in expired_tokens:
+            del password_reset_tokens[token]
 
 
 # ==================== BRANCH SERVICE ====================

@@ -24,6 +24,28 @@ class LoanPaymentMethod(str, enum.Enum):
     COUPON = "coupon"
     MIXED = "mixed"
 
+class SaleStatus(str, enum.Enum):
+    COMPLETED = "completed"
+    REFUNDED = "refunded"
+    PARTIALLY_REFUNDED = "partially_refunded"
+    CANCELLED = "cancelled"
+
+class PaymentMethod(str, enum.Enum):
+    CASH = "cash"
+    TRANSFER = "transfer"
+    CREDIT_CARD = "credit_card"
+    DEBIT_CARD = "debit_card"
+    MOBILE_MONEY = "mobile_money"
+    COUPON = "coupon"
+    MIXED = "mixed"
+
+class RefundStatus(str, enum.Enum):
+    NONE = "none"
+    PENDING = "pending"
+    APPROVED = "approved"
+    COMPLETED = "completed"
+    REJECTED = "rejected"
+
 # ==================== BRANCH MODEL ====================
 class Branch(Base):
     __tablename__ = "branches"
@@ -43,6 +65,7 @@ class Branch(Base):
     stock_movements = relationship("StockMovement", back_populates="branch")
     alerts = relationship("Alert", back_populates="branch")
     loans = relationship("Loan", back_populates="branch", cascade="all, delete-orphan")
+    bank_accounts = relationship("BankAccount", back_populates="branch", cascade="all, delete-orphan")
 
 
 # ==================== PRODUCT MODEL ====================
@@ -69,6 +92,7 @@ class Product(Base):
     stock_movements = relationship("StockMovement", back_populates="product")
     alerts = relationship("Alert", back_populates="product")
     loan_items = relationship("LoanItem", back_populates="product")
+    refund_items = relationship("RefundItem", back_populates="product")
 
 
 # ==================== USER MODEL ====================
@@ -87,6 +111,7 @@ class User(Base):
     # Relationships
     branch = relationship("Branch", back_populates="users")
     sales = relationship("Sale", back_populates="user")
+    refunds = relationship("Refund", back_populates="user")
     stock_movements = relationship("StockMovement", back_populates="user")
     purchase_orders = relationship("PurchaseOrder", back_populates="creator")
     loans_created = relationship("Loan", foreign_keys="Loan.created_by", back_populates="creator")
@@ -94,40 +119,71 @@ class User(Base):
     loan_payments = relationship("LoanPayment", back_populates="recorder")
 
 
-# ==================== STOCK MODEL ====================
-class Stock(Base):
-    __tablename__ = "stock"
-    __table_args__ = (
-        UniqueConstraint('branch_id', 'product_id', name='unique_branch_product'),
-    )
+# ==================== BANK ACCOUNT MODEL ====================
+class BankAccount(Base):
+    __tablename__ = "bank_accounts"
     
     id = Column(Integer, primary_key=True, index=True)
     branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
-    quantity = Column(DECIMAL(12, 2), default=0)
-    reorder_level = Column(DECIMAL(12, 2), default=0)
+    bank_name = Column(String(100), nullable=False)
+    account_number = Column(String(50), nullable=False)
+    account_name = Column(String(255), nullable=False)
+    account_type = Column(String(50), default="checking")  # checking, savings, business
+    currency = Column(String(3), default="ETB")
+    is_active = Column(Boolean, default=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
-    branch = relationship("Branch", back_populates="stock")
-    product = relationship("Product", back_populates="stock")
+    branch = relationship("Branch", back_populates="bank_accounts")
+    sales = relationship("Sale", back_populates="bank_account")
+    refunds = relationship("Refund", back_populates="bank_account")
 
 
-# ==================== SALE MODELS ====================
+# ==================== SALE MODELS (ENHANCED) ====================
 class Sale(Base):
     __tablename__ = "sales"
     
     id = Column(Integer, primary_key=True, index=True)
+    invoice_number = Column(String(50), unique=True, nullable=False, index=True)
     branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     customer_name = Column(String(255))
+    customer_phone = Column(String(50))
+    customer_email = Column(String(255))
+    
+    # Financial fields
+    subtotal = Column(DECIMAL(12, 2), nullable=False, default=0)
+    tax_amount = Column(DECIMAL(12, 2), default=0)
+    tax_rate = Column(DECIMAL(5, 2), default=15)  # Tax percentage
+    discount_amount = Column(DECIMAL(12, 2), default=0)
+    discount_type = Column(String(20), default="percentage")  # percentage, fixed
+    shipping_cost = Column(DECIMAL(12, 2), default=0)
     total_amount = Column(DECIMAL(12, 2), nullable=False)
     total_cost = Column(DECIMAL(12, 2), nullable=False)
+    
+    # Payment fields
+    payment_method = Column(String(50), nullable=False, default=PaymentMethod.CASH.value)
+    bank_account_id = Column(Integer, ForeignKey("bank_accounts.id"), nullable=True)
+    transaction_reference = Column(String(100), nullable=True)  # For transfer reference number
+    
+    # Status fields
+    status = Column(String(50), default=SaleStatus.COMPLETED.value)
+    refund_amount = Column(DECIMAL(12, 2), default=0)
+    refund_status = Column(String(50), default=RefundStatus.NONE.value)
+    
+    # Additional fields
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     
     # Relationships
     branch = relationship("Branch", back_populates="sales")
     user = relationship("User", back_populates="sales")
+    bank_account = relationship("BankAccount", back_populates="sales")
     items = relationship("SaleItem", back_populates="sale", cascade="all, delete-orphan")
+    refunds = relationship("Refund", back_populates="original_sale", cascade="all, delete-orphan")
     loan_payments = relationship("LoanPayment", back_populates="sale")
 
 
@@ -139,17 +195,75 @@ class SaleItem(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     quantity = Column(DECIMAL(12, 2), nullable=False)
     unit_price = Column(DECIMAL(12, 2), nullable=False)
+    discount_amount = Column(DECIMAL(12, 2), default=0)
     line_total = Column(DECIMAL(12, 2), nullable=False)
     
     # Relationships
     sale = relationship("Sale", back_populates="items")
     product = relationship("Product", back_populates="sale_items")
     loan_items = relationship("LoanItem", back_populates="sale_item")
+    refund_items = relationship("RefundItem", back_populates="sale_item")
+
+
+# ==================== REFUND MODELS ====================
+class Refund(Base):
+    __tablename__ = "refunds"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    refund_number = Column(String(50), unique=True, nullable=False, index=True)
+    original_sale_id = Column(Integer, ForeignKey("sales.id"), nullable=False)
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    customer_name = Column(String(255))
+    
+    # Refund details
+    refund_amount = Column(DECIMAL(12, 2), nullable=False)
+    refund_reason = Column(Text, nullable=False)
+    refund_method = Column(String(50), nullable=False)  # cash, transfer, original_method
+    
+    # Bank transfer details for refund
+    bank_account_id = Column(Integer, ForeignKey("bank_accounts.id"), nullable=True)
+    transaction_reference = Column(String(100), nullable=True)
+    
+    # Status
+    status = Column(String(50), default="pending")  # pending, approved, completed, rejected
+    approved_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Relationships
+    original_sale = relationship("Sale", back_populates="refunds")
+    branch = relationship("Branch")
+    user = relationship("User", foreign_keys=[user_id], back_populates="refunds")
+    approver = relationship("User", foreign_keys=[approved_by])
+    bank_account = relationship("BankAccount", back_populates="refunds")
+    items = relationship("RefundItem", back_populates="refund", cascade="all, delete-orphan")
+
+
+class RefundItem(Base):
+    __tablename__ = "refund_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    refund_id = Column(Integer, ForeignKey("refunds.id"), nullable=False)
+    sale_item_id = Column(Integer, ForeignKey("sale_items.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(DECIMAL(12, 2), nullable=False)
+    unit_price = Column(DECIMAL(12, 2), nullable=False)
+    refund_amount = Column(DECIMAL(12, 2), nullable=False)
+    reason = Column(Text, nullable=True)
+    
+    # Relationships
+    refund = relationship("Refund", back_populates="items")
+    sale_item = relationship("SaleItem", back_populates="refund_items")
+    product = relationship("Product", back_populates="refund_items")
 
 
 # ==================== PURCHASE MODELS ====================
 
-# New Purchase Order System
 class PurchaseOrder(Base):
     """Main purchase order table - tracks bulk purchases"""
     __tablename__ = "purchase_orders"
@@ -197,7 +311,6 @@ class PurchaseOrderItem(Base):
     product = relationship("Product", back_populates="purchase_order_items")
 
 
-# Legacy Purchase table (keep for backward compatibility)
 class Purchase(Base):
     __tablename__ = "purchases"
     
@@ -332,8 +445,8 @@ class StockMovement(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     change_qty = Column(DECIMAL(12, 2), nullable=False)
-    movement_type = Column(String(50), nullable=False)  # sale, purchase, adjustment, transfer_in, transfer_out, loan
-    reference_id = Column(Integer)  # Can reference sale_id, purchase_id, loan_id, etc.
+    movement_type = Column(String(50), nullable=False)  # sale, purchase, adjustment, transfer_in, transfer_out, loan, refund
+    reference_id = Column(Integer)  # Can reference sale_id, purchase_id, loan_id, refund_id, etc.
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
@@ -360,59 +473,14 @@ class Alert(Base):
     product = relationship("Product", back_populates="alerts")
 
 
-# ==================== Add reverse relationships ====================
-
-# Add these after all models are defined to avoid circular references
-Product.purchase_order_items = relationship("PurchaseOrderItem", back_populates="product")
-Product.loan_items = relationship("LoanItem", back_populates="product")
-SaleItem.loan_items = relationship("LoanItem", back_populates="sale_item")
-Branch.purchase_orders = relationship("PurchaseOrder", back_populates="branch")
-Branch.loans = relationship("Loan", back_populates="branch")
-User.purchase_orders = relationship("PurchaseOrder", back_populates="creator")
-User.loans_created = relationship("Loan", foreign_keys=[Loan.created_by], back_populates="creator")
-User.loans_approved = relationship("Loan", foreign_keys=[Loan.approved_by], back_populates="approver")
-User.loan_payments = relationship("LoanPayment", back_populates="recorder")
-
-
-# Add this new model to your models.py file
-
-class TempItemStatus(str, enum.Enum):
-    PENDING = "pending"
-    RECEIVED = "received"
-    CANCELLED = "cancelled"
-
-class TempItem(Base):
-    """Temporary item registration for salesmen"""
-    __tablename__ = "temp_items"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    item_number = Column(String(50), unique=True, nullable=False, index=True)
-    item_name = Column(String(255), nullable=False)
-    description = Column(Text, nullable=True)
-    quantity = Column(Integer, default=1)
-    unit_price = Column(DECIMAL(12, 2), nullable=True)
-    customer_name = Column(String(255), nullable=True)
-    customer_phone = Column(String(50), nullable=True)
-    status = Column(String(50), default=TempItemStatus.PENDING.value)
-    registered_by = Column(Integer, ForeignKey("users.id"), nullable=False)
-    registered_at = Column(DateTime(timezone=True), server_default=func.now())
-    received_by = Column(Integer, ForeignKey("users.id"), nullable=True)
-    received_at = Column(DateTime(timezone=True), nullable=True)
-    notes = Column(Text, nullable=True)
-    
-    # Relationships
-    registrar = relationship("User", foreign_keys=[registered_by])
-    receiver = relationship("User", foreign_keys=[received_by])
-    
-    
-    # ==================== SETTINGS MODELS ====================
+# ==================== SETTINGS MODELS ====================
 
 class SystemSetting(Base):
     """Store system-wide settings"""
     __tablename__ = "system_settings"
     
     id = Column(Integer, primary_key=True, index=True)
-    category = Column(String(50), nullable=False, index=True)  # general, coupon, notification, backup
+    category = Column(String(50), nullable=False, index=True)  # general, coupon, notification, backup, tax, payment
     key = Column(String(100), nullable=False)
     value = Column(Text, nullable=True)  # JSON string value
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -452,3 +520,50 @@ class SystemLog(Base):
     
     # Relationship
     user = relationship("User", foreign_keys=[user_id])
+
+
+# ==================== TEMP ITEM MODEL ====================
+class TempItemStatus(str, enum.Enum):
+    PENDING = "pending"
+    RECEIVED = "received"
+    CANCELLED = "cancelled"
+
+class TempItem(Base):
+    """Temporary item registration for salesmen"""
+    __tablename__ = "temp_items"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    item_number = Column(String(50), unique=True, nullable=False, index=True)
+    item_name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    quantity = Column(Integer, default=1)
+    unit_price = Column(DECIMAL(12, 2), nullable=True)
+    customer_name = Column(String(255), nullable=True)
+    customer_phone = Column(String(50), nullable=True)
+    status = Column(String(50), default=TempItemStatus.PENDING.value)
+    registered_by = Column(Integer, ForeignKey("users.id"), nullable=False)
+    registered_at = Column(DateTime(timezone=True), server_default=func.now())
+    received_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(Text, nullable=True)
+    
+    # Relationships
+    registrar = relationship("User", foreign_keys=[registered_by])
+    receiver = relationship("User", foreign_keys=[received_by])
+
+
+# ==================== Add reverse relationships ====================
+
+# Add these after all models are defined to avoid circular references
+Product.purchase_order_items = relationship("PurchaseOrderItem", back_populates="product")
+Product.loan_items = relationship("LoanItem", back_populates="product")
+Product.refund_items = relationship("RefundItem", back_populates="product")
+SaleItem.refund_items = relationship("RefundItem", back_populates="sale_item")
+Branch.purchase_orders = relationship("PurchaseOrder", back_populates="branch")
+Branch.loans = relationship("Loan", back_populates="branch")
+Branch.bank_accounts = relationship("BankAccount", back_populates="branch")
+User.purchase_orders = relationship("PurchaseOrder", back_populates="creator")
+User.loans_created = relationship("Loan", foreign_keys=[Loan.created_by], back_populates="creator")
+User.loans_approved = relationship("Loan", foreign_keys=[Loan.approved_by], back_populates="approver")
+User.loan_payments = relationship("LoanPayment", back_populates="recorder")
+User.refunds = relationship("Refund", foreign_keys=[Refund.user_id], back_populates="user")
