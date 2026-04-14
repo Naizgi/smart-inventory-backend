@@ -51,7 +51,6 @@ def run_daily_report():
 def start_scheduler():
     """Start the background scheduler for email notifications"""
     if settings.ENVIRONMENT == "production":
-        # Run low stock check every hour
         scheduler.add_job(
             func=run_low_stock_check,
             trigger="interval",
@@ -61,7 +60,6 @@ def start_scheduler():
         )
         logger.info("✅ Low stock check scheduler started (every hour)")
         
-        # Run daily report at 8:00 AM
         scheduler.add_job(
             func=run_daily_report,
             trigger="cron",
@@ -92,21 +90,17 @@ app = FastAPI(
 # ==================== STARTUP & SHUTDOWN EVENTS ====================
 @app.on_event("startup")
 def startup():
-    # Create all tables
     logger.info("Creating database tables...")
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:
-        # Initialize default settings
         SettingsService.initialize_default_settings(db)
         logger.info("✅ Default settings initialized")
 
-        # Seed users
         seed_users(db)
         logger.info("✅ Users seeded successfully")
         
-        # Run initial low stock check on startup
         EmailScheduler.check_and_send_low_stock_alerts(db)
         logger.info("✅ Initial low stock check completed")
 
@@ -115,7 +109,6 @@ def startup():
     finally:
         db.close()
     
-    # Start email scheduler
     start_scheduler()
 
 @app.on_event("shutdown")
@@ -157,7 +150,7 @@ app.include_router(purchase_router)
 app.include_router(temp_items_router)
 app.include_router(settings_router)
 
-# ==================== TEST EMAIL ENDPOINT (Admin only) ====================
+# ==================== TEST EMAIL ENDPOINT ====================
 @app.post("/api/test/email")
 def test_email(
     db: Session = Depends(get_db),
