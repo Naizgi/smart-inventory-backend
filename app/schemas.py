@@ -38,6 +38,7 @@ class PaymentMethod(str, Enum):
     MOBILE_MONEY = "mobile_money"
     COUPON = "coupon"
     MIXED = "mixed"
+    ORIGINAL_METHOD = "original_method"
 
 class RefundStatus(str, Enum):
     NONE = "none"
