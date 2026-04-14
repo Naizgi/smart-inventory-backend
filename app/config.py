@@ -31,6 +31,20 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
 
+    # ==================== EMAIL SETTINGS ====================
+    # SMTP Configuration (for email notifications)
+    SMTP_HOST: str = "smtp.gmail.com"
+    SMTP_PORT: int = 587
+    SMTP_USER: str = "minilik71@gmail.com"  # Your Gmail address
+    SMTP_PASSWORD: str = "uvcg bdnm spto hahf"  # Your App Password (16 characters)
+    SMTP_FROM_EMAIL: str = "noreply@inventory.com"
+    
+    # Dashboard URL (for links in emails)
+    DASHBOARD_URL: str = "https://your-app.railway.app"
+    
+    # Environment
+    ENVIRONMENT: str = "development"  # development or production
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

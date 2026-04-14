@@ -19,6 +19,10 @@ import bcrypt
 import secrets
 import random
 import string
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from pathlib import Path
 
 # Password context for hashing - with fallback handling
 pwd_context = CryptContext(
@@ -27,9 +31,8 @@ pwd_context = CryptContext(
 )
 
 # In-memory storage for OTPs (use Redis in production)
-# Structure: {email: {'otp': '123456', 'expires_at': datetime, 'attempts': 0, 'last_request_at': datetime}}
 otp_storage = {}
-password_reset_tokens = {}  # {reset_token: {'email': email, 'expires_at': datetime}}
+password_reset_tokens = {}
 
 # ==================== AUTH SERVICE ====================
 class AuthService:
@@ -37,16 +40,11 @@ class AuthService:
     def verify_password(plain_password: str, hashed_password: str) -> bool:
         """Verify a plain password against a hashed password"""
         try:
-            # Bcrypt has a 72-byte limit - truncate if needed
             if len(plain_password) > 72:
                 plain_password = plain_password[:72]
-            
-            # Try passlib first
             return pwd_context.verify(plain_password, hashed_password)
-            
         except Exception as e:
             print(f"❌ Passlib verification failed: {e}")
-            # Fallback to direct bcrypt
             try:
                 return bcrypt.checkpw(
                     plain_password.encode('utf-8'),
@@ -60,16 +58,11 @@ class AuthService:
     def get_password_hash(password: str) -> str:
         """Hash a password using bcrypt"""
         try:
-            # Bcrypt has a 72-byte limit - truncate if needed
             if len(password) > 72:
                 password = password[:72]
-            
-            # Try passlib first
             return pwd_context.hash(password)
-            
         except Exception as e:
             print(f"❌ Passlib hash failed: {e}")
-            # Fallback to direct bcrypt
             try:
                 salt = bcrypt.gensalt()
                 return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
@@ -141,80 +134,66 @@ class AuthService:
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
-        """Send OTP to email - Implement with your email service"""
-        # For development, just print/log the OTP
+        """Send OTP to email"""
         print(f"[DEV] OTP for {email}: {otp}")
         
-        # TODO: Uncomment and configure for production email sending
-        # Production email sending is commented out to avoid syntax errors
-        # When ready to use email, uncomment the code below and configure SMTP settings
-        """
-        import smtplib
-        from email.mime.text import MIMEText
-        from email.mime.multipart import MIMEMultipart
-        
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = settings.SMTP_FROM_EMAIL
-            msg['To'] = email
-            msg['Subject'] = "Password Reset OTP - Inventory System"
-            
-            # Simple HTML body
-            html_body = f'''
-            <html>
-            <body style="font-family: Arial, sans-serif;">
-                <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #2FB8A6;">Password Reset Request</h2>
-                    <p>You requested to reset your password. Use the following OTP to proceed:</p>
-                    <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-                        {otp}
+        # Production email sending
+        if settings.SMTP_HOST and settings.SMTP_USER:
+            try:
+                msg = MIMEMultipart()
+                msg['From'] = settings.SMTP_FROM_EMAIL
+                msg['To'] = email
+                msg['Subject'] = "Password Reset OTP - Inventory System"
+                
+                html_body = f'''
+                <html>
+                <body style="font-family: Arial, sans-serif;">
+                    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+                        <h2 style="color: #2FB8A6;">Password Reset Request</h2>
+                        <p>You requested to reset your password. Use the following OTP to proceed:</p>
+                        <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
+                            {otp}
+                        </div>
+                        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+                        <p>If you didn't request this, please ignore this email.</p>
+                        <hr>
+                        <p style="color: #666; font-size: 12px;">Inventory System - Secure Password Recovery</p>
                     </div>
-                    <p>This OTP is valid for <strong>10 minutes</strong>.</p>
-                    <p>If you didn't request this, please ignore this email.</p>
-                    <hr>
-                    <p style="color: #666; font-size: 12px;">Inventory System - Secure Password Recovery</p>
-                </div>
-            </body>
-            </html>
-            '''
-            
-            msg.attach(MIMEText(html_body, 'html'))
-            
-            with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                server.starttls()
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-            
-            print(f"Email sent successfully to {email}")
-        except Exception as e:
-            print(f"Failed to send email to {email}: {e}")
-            print(f"OTP for {email}: {otp}")
-        """
+                </body>
+                </html>
+                '''
+                
+                msg.attach(MIMEText(html_body, 'html'))
+                
+                with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                    server.starttls()
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+                
+                print(f"Email sent successfully to {email}")
+            except Exception as e:
+                print(f"Failed to send email to {email}: {e}")
         
         return True
     
     @staticmethod
     def request_password_reset(db: Session, email: str) -> Dict[str, Any]:
         """Request password reset - sends OTP to admin email"""
-        # Check if email exists and is admin
         if not AuthService.is_admin_email(db, email):
             return {
                 "success": False,
                 "message": "Email not found or not authorized for password reset"
             }
         
-        # Generate OTP
         otp = AuthService.generate_otp()
         expires_at = datetime.utcnow() + timedelta(minutes=10)
         
-        # Store OTP
         otp_storage[email] = {
             'otp': otp,
             'expires_at': expires_at,
             'attempts': 0
         }
         
-        # Send OTP via email
         AuthService.send_otp_email(email, otp)
         
         return {
@@ -225,7 +204,6 @@ class AuthService:
     @staticmethod
     def verify_otp(db: Session, email: str, otp: str) -> Dict[str, Any]:
         """Verify OTP and return reset token"""
-        # Check if email exists in OTP storage
         if email not in otp_storage:
             return {
                 "success": False,
@@ -235,9 +213,7 @@ class AuthService:
         
         stored_data = otp_storage[email]
         
-        # Check if OTP is expired
         if datetime.utcnow() > stored_data['expires_at']:
-            # Clean up expired OTP
             del otp_storage[email]
             return {
                 "success": False,
@@ -245,7 +221,6 @@ class AuthService:
                 "resetToken": None
             }
         
-        # Check attempts (max 5 attempts)
         if stored_data['attempts'] >= 5:
             del otp_storage[email]
             return {
@@ -254,7 +229,6 @@ class AuthService:
                 "resetToken": None
             }
         
-        # Verify OTP
         if stored_data['otp'] != otp:
             stored_data['attempts'] += 1
             remaining_attempts = 5 - stored_data['attempts']
@@ -264,14 +238,12 @@ class AuthService:
                 "resetToken": None
             }
         
-        # Generate reset token
         reset_token = AuthService.generate_reset_token()
         password_reset_tokens[reset_token] = {
             'email': email,
             'expires_at': datetime.utcnow() + timedelta(minutes=30)
         }
         
-        # Clean up OTP
         del otp_storage[email]
         
         return {
@@ -283,14 +255,12 @@ class AuthService:
     @staticmethod
     def resend_otp(db: Session, email: str) -> Dict[str, Any]:
         """Resend OTP to email"""
-        # Check if email exists and is admin
         if not AuthService.is_admin_email(db, email):
             return {
                 "success": False,
                 "message": "Email not found or not authorized"
             }
         
-        # Check for rate limiting (prevent spam)
         if email in otp_storage:
             last_request = otp_storage[email].get('last_request_at')
             if last_request:
@@ -302,11 +272,9 @@ class AuthService:
                         "message": f"Please wait {remaining} seconds before requesting another OTP"
                     }
         
-        # Generate new OTP
         otp = AuthService.generate_otp()
         expires_at = datetime.utcnow() + timedelta(minutes=10)
         
-        # Update storage
         otp_storage[email] = {
             'otp': otp,
             'expires_at': expires_at,
@@ -314,7 +282,6 @@ class AuthService:
             'last_request_at': datetime.utcnow()
         }
         
-        # Send OTP via email
         AuthService.send_otp_email(email, otp)
         
         return {
@@ -325,7 +292,6 @@ class AuthService:
     @staticmethod
     def reset_password(db: Session, email: str, reset_token: str, new_password: str) -> Dict[str, Any]:
         """Reset password using valid reset token"""
-        # Check if reset token exists and is valid
         if reset_token not in password_reset_tokens:
             return {
                 "success": False,
@@ -334,7 +300,6 @@ class AuthService:
         
         token_data = password_reset_tokens[reset_token]
         
-        # Check if token is expired
         if datetime.utcnow() > token_data['expires_at']:
             del password_reset_tokens[reset_token]
             return {
@@ -342,14 +307,12 @@ class AuthService:
                 "message": "Reset token has expired. Please request a new OTP."
             }
         
-        # Verify email matches
         if token_data['email'] != email:
             return {
                 "success": False,
                 "message": "Email mismatch"
             }
         
-        # Get user
         user = db.query(User).filter(
             User.email == email,
             User.role == 'admin'
@@ -361,24 +324,18 @@ class AuthService:
                 "message": "User not found"
             }
         
-        # Validate password strength
         if len(new_password) < 8:
             return {
                 "success": False,
                 "message": "Password must be at least 8 characters long"
             }
         
-        # Hash the new password
         user.password_hash = AuthService.get_password_hash(new_password)
-        
-        # Save to database
         db.commit()
         db.refresh(user)
         
-        # Clean up used token
         del password_reset_tokens[reset_token]
         
-        # Optional: Clean up any existing OTP for this email
         if email in otp_storage:
             del otp_storage[email]
         
@@ -404,6 +361,219 @@ class AuthService:
         ]
         for token in expired_tokens:
             del password_reset_tokens[token]
+
+
+# ==================== EMAIL SERVICE ====================
+class EmailService:
+    @staticmethod
+    def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
+        """Send email using template"""
+        if not settings.SMTP_HOST or not settings.SMTP_USER:
+            print(f"[DEV] Would send email to {to_emails}: {subject}")
+            return False
+        
+        try:
+            msg = MIMEMultipart()
+            msg['From'] = settings.SMTP_FROM_EMAIL
+            msg['To'] = ', '.join(to_emails)
+            msg['Subject'] = subject
+            
+            # Simple HTML template
+            html_body = EmailService._render_template(template_name, context or {})
+            msg.attach(MIMEText(html_body, 'html'))
+            
+            with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                server.starttls()
+                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                server.send_message(msg)
+            
+            print(f"Email sent to {to_emails}: {subject}")
+            return True
+        except Exception as e:
+            print(f"Failed to send email: {str(e)}")
+            return False
+    
+    @staticmethod
+    def _render_template(template_name: str, context: dict) -> str:
+        """Render email template"""
+        templates = {
+            "low_stock.html": f"""
+            <html>
+            <body>
+                <h2 style="color: #2FB8A6;">⚠️ Low Stock Alert</h2>
+                <p>Product: <strong>{context.get('product_name', 'N/A')}</strong></p>
+                <p>SKU: {context.get('product_sku', 'N/A')}</p>
+                <p>Branch: {context.get('branch_name', 'N/A')}</p>
+                <p>Current Stock: <strong style="color: #ff9800;">{context.get('current_stock', 0)} units</strong></p>
+                <p>Reorder Level: {context.get('reorder_level', 0)} units</p>
+                <p>Please reorder this product as soon as possible.</p>
+                <hr>
+                <p style="font-size: 12px;">Inventory System - Automated Alert</p>
+            </body>
+            </html>
+            """,
+            "daily_report.html": f"""
+            <html>
+            <body>
+                <h2 style="color: #2FB8A6;">📊 Daily Sales Report</h2>
+                <p>Date: <strong>{context.get('date', 'N/A')}</strong></p>
+                <h3>Summary</h3>
+                <ul>
+                    <li>Total Sales: {context.get('total_sales', 0)}</li>
+                    <li>Gross Revenue: {context.get('total_revenue', 0):,.2f} ETB</li>
+                    <li>Refunds: {context.get('total_refunds', 0):,.2f} ETB</li>
+                    <li>Net Revenue: {context.get('net_revenue', 0):,.2f} ETB</li>
+                </ul>
+                <hr>
+                <p style="font-size: 12px;">Inventory System - Daily Report</p>
+            </body>
+            </html>
+            """
+        }
+        return templates.get(template_name, "<html><body>Email content</body></html>")
+    
+    @staticmethod
+    def send_low_stock_alert(to_emails: List[str], product_name: str, product_sku: str, 
+                              current_stock: float, reorder_level: float, branch_name: str):
+        """Send low stock alert email"""
+        context = {
+            "product_name": product_name,
+            "product_sku": product_sku,
+            "current_stock": current_stock,
+            "reorder_level": reorder_level,
+            "branch_name": branch_name,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
+        return EmailService.send_email(to_emails, f"⚠️ Low Stock Alert: {product_name}", "low_stock.html", context)
+    
+    @staticmethod
+    def send_daily_report(to_emails: List[str], report_data: dict):
+        """Send daily sales report"""
+        context = {
+            "date": report_data.get("date", datetime.now().strftime("%Y-%m-%d")),
+            "total_sales": report_data.get("total_sales", 0),
+            "total_revenue": report_data.get("total_revenue", 0),
+            "total_refunds": report_data.get("total_refunds", 0),
+            "net_revenue": report_data.get("net_revenue", 0),
+            "top_products": report_data.get("top_products", []),
+            "low_stock_items": report_data.get("low_stock_items", [])
+        }
+        return EmailService.send_email(to_emails, f"📊 Daily Report - {context['date']}", "daily_report.html", context)
+
+
+# ==================== EMAIL SCHEDULER SERVICE ====================
+class EmailScheduler:
+    @staticmethod
+    def check_and_send_low_stock_alerts(db: Session):
+        """Check for low stock and send email alerts"""
+        try:
+            email_recipients = SettingsService.get_setting(db, "notification", "email_recipients")
+            low_stock_email = SettingsService.get_setting(db, "notification", "low_stock_email")
+            
+            if not low_stock_email or not email_recipients:
+                print("Low stock email notifications disabled or no recipients")
+                return
+            
+            stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).all()
+            
+            for stock in stocks:
+                product = db.query(Product).filter(Product.id == stock.product_id).first()
+                branch = db.query(Branch).filter(Branch.id == stock.branch_id).first()
+                
+                if product and branch:
+                    existing_alert = db.query(Alert).filter(
+                        Alert.product_id == product.id,
+                        Alert.branch_id == branch.id,
+                        Alert.created_at >= datetime.now() - timedelta(days=1),
+                        Alert.message.like("%low stock%")
+                    ).first()
+                    
+                    if not existing_alert:
+                        EmailService.send_low_stock_alert(
+                            to_emails=email_recipients,
+                            product_name=product.name,
+                            product_sku=product.sku,
+                            current_stock=float(stock.quantity),
+                            reorder_level=float(stock.reorder_level),
+                            branch_name=branch.name
+                        )
+                        
+                        alert = Alert(
+                            branch_id=stock.branch_id,
+                            product_id=stock.product_id,
+                            message=f"Low stock alert sent for {product.name}",
+                            resolved=False
+                        )
+                        db.add(alert)
+                        db.commit()
+        except Exception as e:
+            print(f"Failed to send low stock alerts: {str(e)}")
+    
+    @staticmethod
+    def send_daily_report(db: Session):
+        """Generate and send daily sales report"""
+        try:
+            email_recipients = SettingsService.get_setting(db, "notification", "email_recipients")
+            daily_report_email = SettingsService.get_setting(db, "notification", "daily_report_email")
+            
+            if not daily_report_email or not email_recipients:
+                print("Daily report email notifications disabled or no recipients")
+                return
+            
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow = today + timedelta(days=1)
+            
+            sales = db.query(Sale).filter(
+                Sale.created_at >= today,
+                Sale.created_at < tomorrow
+            ).all()
+            
+            total_sales = len(sales)
+            total_revenue = sum(float(s.total_amount) for s in sales)
+            total_refunds = sum(float(s.refund_amount) for s in sales)
+            net_revenue = total_revenue - total_refunds
+            
+            # Get top products
+            product_sales = {}
+            for sale in sales:
+                for item in sale.items:
+                    if item.product_id not in product_sales:
+                        product_sales[item.product_id] = {
+                            "name": item.product.name if item.product else "Unknown",
+                            "quantity": 0,
+                            "revenue": 0
+                        }
+                    product_sales[item.product_id]["quantity"] += float(item.quantity)
+                    product_sales[item.product_id]["revenue"] += float(item.line_total)
+            
+            top_products = sorted(product_sales.values(), key=lambda x: x["revenue"], reverse=True)[:5]
+            
+            # Get low stock items
+            low_stock_items = []
+            stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).limit(5).all()
+            for stock in stocks:
+                product = db.query(Product).filter(Product.id == stock.product_id).first()
+                if product:
+                    low_stock_items.append({
+                        "product_name": product.name,
+                        "current_stock": float(stock.quantity),
+                        "reorder_level": float(stock.reorder_level)
+                    })
+            
+            report_data = {
+                "date": today.strftime("%Y-%m-%d"),
+                "total_sales": total_sales,
+                "total_revenue": total_revenue,
+                "total_refunds": total_refunds,
+                "net_revenue": net_revenue,
+                "top_products": top_products,
+                "low_stock_items": low_stock_items
+            }
+            
+            EmailService.send_daily_report(email_recipients, report_data)
+            
+        except Exception as e:
+            print(f"Failed to send daily report: {str(e)}")
 
 
 # ==================== BRANCH SERVICE ====================
@@ -981,7 +1151,8 @@ class SettingsService:
                 "date_format": "YYYY-MM-DD",
                 "currency": "ETB",
                 "language": "en",
-                "items_per_page": 20
+                "items_per_page": 20,
+                "default_tax_rate": 15
             },
             "notification": {
                 "low_stock_email": True,
