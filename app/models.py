@@ -46,6 +46,10 @@ class RefundStatus(str, enum.Enum):
     COMPLETED = "completed"
     REJECTED = "rejected"
 
+class DiscountType(str, enum.Enum):
+    PERCENTAGE = "percentage"
+    FIXED = "fixed"
+
 # ==================== BRANCH MODEL ====================
 class Branch(Base):
     __tablename__ = "branches"
@@ -139,6 +143,24 @@ class BankAccount(Base):
     branch = relationship("Branch", back_populates="bank_accounts")
     sales = relationship("Sale", back_populates="bank_account")
     refunds = relationship("Refund", back_populates="bank_account")
+
+
+# ==================== STOCK MODEL ====================
+class Stock(Base):
+    __tablename__ = "stock"
+    __table_args__ = (
+        UniqueConstraint('branch_id', 'product_id', name='unique_branch_product'),
+    )
+    
+    id = Column(Integer, primary_key=True, index=True)
+    branch_id = Column(Integer, ForeignKey("branches.id"), nullable=False)
+    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    quantity = Column(DECIMAL(12, 2), default=0)
+    reorder_level = Column(DECIMAL(12, 2), default=0)
+    
+    # Relationships
+    branch = relationship("Branch", back_populates="stock")
+    product = relationship("Product", back_populates="stock")
 
 
 # ==================== SALE MODELS (ENHANCED) ====================
