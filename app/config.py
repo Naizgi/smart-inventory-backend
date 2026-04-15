@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = "uvcg bdnm spto hahf"  # Your App Password (16 characters)
     SMTP_FROM_EMAIL: str = "noreply@inventory.com"
     
+    
+    
+        # Resend.com API (Recommended for Railway hobby plan)
+    RESEND_API_KEY: str = "re_fXwCahS3_C8HoFbgi7rXUri8qfmcEvqA5"  # Add this line
+    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"  # Add this line
+    
     # Dashboard URL (for links in emails)
     DASHBOARD_URL: str = "https://smartlink-inventory.up.railway.app"
     
