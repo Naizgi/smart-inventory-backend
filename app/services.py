@@ -134,6 +134,15 @@ class AuthService:
         return user is not None and user.active
     
     @staticmethod
+    def get_all_admin_emails(db: Session) -> List[str]:
+        """Get all active admin email addresses from database"""
+        admin_users = db.query(User).filter(
+            User.role == 'admin',
+            User.active == True
+        ).all()
+        return [user.email for user in admin_users]
+    
+    @staticmethod
     def send_otp_email(email: str, otp: str):
         """Send OTP to email using Resend.com"""
         print(f"[DEV] OTP for {email}: {otp}")
@@ -536,15 +545,32 @@ class EmailService:
 
 # ==================== EMAIL SCHEDULER SERVICE ====================
 class EmailScheduler:
+    
+    @staticmethod
+    def get_admin_emails(db: Session) -> List[str]:
+        """Get all active admin email addresses from users table"""
+        admin_users = db.query(User).filter(
+            User.role == 'admin',
+            User.active == True
+        ).all()
+        return [user.email for user in admin_users]
+    
     @staticmethod
     def check_and_send_low_stock_alerts(db: Session):
-        """Check for low stock and send email alerts"""
+        """Check for low stock and send email alerts to all admins"""
         try:
-            email_recipients = SettingsService.get_setting(db, "notification", "email_recipients")
+            # Get admin emails directly from users table
+            admin_emails = EmailScheduler.get_admin_emails(db)
+            
+            if not admin_emails:
+                print("No active admin users found")
+                return
+            
+            # Check if low stock email notifications are enabled
             low_stock_email = SettingsService.get_setting(db, "notification", "low_stock_email")
             
-            if not low_stock_email or not email_recipients:
-                print("Low stock email notifications disabled or no recipients")
+            if not low_stock_email:
+                print("Low stock email notifications disabled")
                 return
             
             stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).all()
@@ -554,6 +580,7 @@ class EmailScheduler:
                 branch = db.query(Branch).filter(Branch.id == stock.branch_id).first()
                 
                 if product and branch:
+                    # Check if alert was already sent today
                     existing_alert = db.query(Alert).filter(
                         Alert.product_id == product.id,
                         Alert.branch_id == branch.id,
@@ -562,8 +589,9 @@ class EmailScheduler:
                     ).first()
                     
                     if not existing_alert:
+                        # Send to all admin emails
                         EmailService.send_low_stock_alert(
-                            to_emails=email_recipients,
+                            to_emails=admin_emails,
                             product_name=product.name,
                             product_sku=product.sku,
                             current_stock=float(stock.quantity),
@@ -574,7 +602,7 @@ class EmailScheduler:
                         alert = Alert(
                             branch_id=stock.branch_id,
                             product_id=stock.product_id,
-                            message=f"Low stock alert sent for {product.name}",
+                            message=f"Low stock alert sent to admins for {product.name}",
                             resolved=False
                         )
                         db.add(alert)
@@ -584,13 +612,20 @@ class EmailScheduler:
     
     @staticmethod
     def send_daily_report(db: Session):
-        """Generate and send daily sales report"""
+        """Generate and send daily sales report to all admins"""
         try:
-            email_recipients = SettingsService.get_setting(db, "notification", "email_recipients")
+            # Get admin emails directly from users table
+            admin_emails = EmailScheduler.get_admin_emails(db)
+            
+            if not admin_emails:
+                print("No active admin users found")
+                return
+            
+            # Check if daily report emails are enabled
             daily_report_email = SettingsService.get_setting(db, "notification", "daily_report_email")
             
-            if not daily_report_email or not email_recipients:
-                print("Daily report email notifications disabled or no recipients")
+            if not daily_report_email:
+                print("Daily report email notifications disabled")
                 return
             
             today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -643,7 +678,8 @@ class EmailScheduler:
                 "low_stock_items": low_stock_items
             }
             
-            EmailService.send_daily_report(email_recipients, report_data)
+            # Send to all admin emails
+            EmailService.send_daily_report(admin_emails, report_data)
             
         except Exception as e:
             print(f"Failed to send daily report: {str(e)}")
