@@ -23,6 +23,7 @@ import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
+import resend
 
 # Password context for hashing - with fallback handling
 pwd_context = CryptContext(
@@ -134,10 +135,60 @@ class AuthService:
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
-        """Send OTP to email"""
+        """Send OTP to email using Resend.com"""
         print(f"[DEV] OTP for {email}: {otp}")
         
-        # Production email sending
+        # Try Resend API first (works on Railway hobby plan)
+        if settings.RESEND_API_KEY:
+            try:
+                resend.api_key = settings.RESEND_API_KEY
+                
+                params = {
+                    "from": settings.RESEND_FROM_EMAIL,
+                    "to": [email],
+                    "subject": "Password Reset OTP - Inventory System",
+                    "html": f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <style>
+                            body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                            .header {{ background: linear-gradient(135deg, #2FB8A6, #6FD3C3); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                            .content {{ padding: 20px; background: #f9f9f9; }}
+                            .otp-code {{ font-size: 32px; font-weight: bold; color: #2FB8A6; text-align: center; padding: 20px; background: #f4f4f4; margin: 20px 0; letter-spacing: 5px; border-radius: 8px; }}
+                            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="header">
+                                <h2>Password Reset Request</h2>
+                            </div>
+                            <div class="content">
+                                <p>You requested to reset your password. Use the following OTP to proceed:</p>
+                                <div class="otp-code">{otp}</div>
+                                <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+                                <p>If you didn't request this, please ignore this email.</p>
+                            </div>
+                            <div class="footer">
+                                <p>Inventory System - Secure Password Recovery</p>
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                    """
+                }
+                
+                email_result = resend.Emails.send(params)
+                print(f"✅ Email sent via Resend to {email}")
+                return True
+                
+            except Exception as e:
+                print(f"❌ Resend email failed: {e}")
+        
+        # Fallback to SMTP if Resend fails and SMTP is configured
         if settings.SMTP_HOST and settings.SMTP_USER:
             try:
                 msg = MIMEMultipart()
@@ -170,9 +221,10 @@ class AuthService:
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
                     server.send_message(msg)
                 
-                print(f"Email sent successfully to {email}")
+                print(f"✅ Email sent via SMTP to {email}")
+                return True
             except Exception as e:
-                print(f"Failed to send email to {email}: {e}")
+                print(f"❌ SMTP email failed: {e}")
         
         return True
     
@@ -367,31 +419,52 @@ class AuthService:
 class EmailService:
     @staticmethod
     def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
-        """Send email using template"""
-        if not settings.SMTP_HOST or not settings.SMTP_USER:
-            print(f"[DEV] Would send email to {to_emails}: {subject}")
-            return False
+        """Send email using Resend.com API"""
         
-        try:
-            msg = MIMEMultipart()
-            msg['From'] = settings.SMTP_FROM_EMAIL
-            msg['To'] = ', '.join(to_emails)
-            msg['Subject'] = subject
-            
-            # Simple HTML template
-            html_body = EmailService._render_template(template_name, context or {})
-            msg.attach(MIMEText(html_body, 'html'))
-            
-            with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                server.starttls()
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
-            
-            print(f"Email sent to {to_emails}: {subject}")
-            return True
-        except Exception as e:
-            print(f"Failed to send email: {str(e)}")
-            return False
+        # Try Resend API first (works on Railway hobby plan)
+        if settings.RESEND_API_KEY:
+            try:
+                resend.api_key = settings.RESEND_API_KEY
+                
+                html_body = EmailService._render_template(template_name, context or {})
+                
+                params = {
+                    "from": settings.RESEND_FROM_EMAIL,
+                    "to": to_emails,
+                    "subject": subject,
+                    "html": html_body
+                }
+                
+                email_result = resend.Emails.send(params)
+                print(f"✅ Email sent via Resend to {to_emails}: {subject}")
+                return True
+                
+            except Exception as e:
+                print(f"❌ Resend email failed: {str(e)}")
+        
+        # Fallback to SMTP if Resend fails and SMTP is configured
+        if settings.SMTP_HOST and settings.SMTP_USER:
+            try:
+                msg = MIMEMultipart()
+                msg['From'] = settings.SMTP_FROM_EMAIL
+                msg['To'] = ', '.join(to_emails)
+                msg['Subject'] = subject
+                
+                html_body = EmailService._render_template(template_name, context or {})
+                msg.attach(MIMEText(html_body, 'html'))
+                
+                with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                    server.starttls()
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+                
+                print(f"✅ Email sent via SMTP to {to_emails}: {subject}")
+                return True
+            except Exception as e:
+                print(f"❌ SMTP email failed: {str(e)}")
+        
+        print(f"[DEV] Would send email to {to_emails}: {subject}")
+        return False
     
     @staticmethod
     def _render_template(template_name: str, context: dict) -> str:
