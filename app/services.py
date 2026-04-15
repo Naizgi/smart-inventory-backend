@@ -20,6 +20,7 @@ import secrets
 import random
 import string
 import smtplib
+import requests
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from pathlib import Path
@@ -144,10 +145,69 @@ class AuthService:
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
-        """Send OTP to email using Resend.com"""
+        """Send OTP to email using Brevo API"""
         print(f"[DEV] OTP for {email}: {otp}")
         
-        # Try Resend API first (works on Railway hobby plan)
+        # Try Brevo API first (free, no domain needed)
+        if settings.BREVO_API_KEY:
+            try:
+                url = "https://api.brevo.com/v3/smtp/email"
+                headers = {
+                    "accept": "application/json",
+                    "api-key": settings.BREVO_API_KEY,
+                    "content-type": "application/json"
+                }
+                
+                data = {
+                    "sender": {"email": settings.BREVO_SENDER_EMAIL},
+                    "to": [{"email": email}],
+                    "subject": "Password Reset OTP - Inventory System",
+                    "htmlContent": f"""
+                    <!DOCTYPE html>
+                    <html>
+                    <head>
+                        <meta charset="UTF-8">
+                        <style>
+                            body {{ font-family: Arial, sans-serif; line-height: 1.6; }}
+                            .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                            .header {{ background: linear-gradient(135deg, #2FB8A6, #6FD3C3); color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }}
+                            .content {{ padding: 20px; background: #f9f9f9; }}
+                            .otp-code {{ font-size: 32px; font-weight: bold; color: #2FB8A6; text-align: center; padding: 20px; background: #f4f4f4; margin: 20px 0; letter-spacing: 5px; border-radius: 8px; }}
+                            .footer {{ text-align: center; padding: 20px; font-size: 12px; color: #666; }}
+                        </style>
+                    </head>
+                    <body>
+                        <div class="container">
+                            <div class="header">
+                                <h2>Password Reset Request</h2>
+                            </div>
+                            <div class="content">
+                                <p>You requested to reset your password. Use the following OTP to proceed:</p>
+                                <div class="otp-code">{otp}</div>
+                                <p>This OTP is valid for <strong>10 minutes</strong>.</p>
+                                <p>If you didn't request this, please ignore this email.</p>
+                            </div>
+                            <div class="footer">
+                                <p>Inventory System - Secure Password Recovery</p>
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                    """
+                }
+                
+                response = requests.post(url, json=data, headers=headers)
+                
+                if response.status_code in [200, 201]:
+                    print(f"✅ Email sent via Brevo to {email}")
+                    return True
+                else:
+                    print(f"❌ Brevo API error: {response.text}")
+                    
+            except Exception as e:
+                print(f"❌ Brevo email failed: {e}")
+        
+        # Fallback to Resend if Brevo fails
         if settings.RESEND_API_KEY:
             try:
                 resend.api_key = settings.RESEND_API_KEY
@@ -197,7 +257,7 @@ class AuthService:
             except Exception as e:
                 print(f"❌ Resend email failed: {e}")
         
-        # Fallback to SMTP if Resend fails and SMTP is configured
+        # Fallback to SMTP if configured
         if settings.SMTP_HOST and settings.SMTP_USER:
             try:
                 msg = MIMEMultipart()
@@ -428,9 +488,39 @@ class AuthService:
 class EmailService:
     @staticmethod
     def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
-        """Send email using Resend.com API"""
+        """Send email using Brevo API"""
         
-        # Try Resend API first (works on Railway hobby plan)
+        # Try Brevo API first
+        if settings.BREVO_API_KEY:
+            try:
+                url = "https://api.brevo.com/v3/smtp/email"
+                headers = {
+                    "accept": "application/json",
+                    "api-key": settings.BREVO_API_KEY,
+                    "content-type": "application/json"
+                }
+                
+                html_body = EmailService._render_template(template_name, context or {})
+                
+                data = {
+                    "sender": {"email": settings.BREVO_SENDER_EMAIL},
+                    "to": [{"email": email} for email in to_emails],
+                    "subject": subject,
+                    "htmlContent": html_body
+                }
+                
+                response = requests.post(url, json=data, headers=headers)
+                
+                if response.status_code in [200, 201]:
+                    print(f"✅ Email sent via Brevo to {to_emails}: {subject}")
+                    return True
+                else:
+                    print(f"❌ Brevo API error: {response.text}")
+                    
+            except Exception as e:
+                print(f"❌ Brevo email failed: {str(e)}")
+        
+        # Fallback to Resend if Brevo fails
         if settings.RESEND_API_KEY:
             try:
                 resend.api_key = settings.RESEND_API_KEY
@@ -451,7 +541,7 @@ class EmailService:
             except Exception as e:
                 print(f"❌ Resend email failed: {str(e)}")
         
-        # Fallback to SMTP if Resend fails and SMTP is configured
+        # Fallback to SMTP if configured
         if settings.SMTP_HOST and settings.SMTP_USER:
             try:
                 msg = MIMEMultipart()

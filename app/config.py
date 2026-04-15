@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = "re_fXwCahS3_C8HoFbgi7rXUri8qfmcEvqA5"  # Add this line
     RESEND_FROM_EMAIL: str = "onboarding@resend.dev"  # Add this line
     
+    
+    # Add to Settings class
+    BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "cc5eb022fa5217c0a179bbc23de8a56a5ecc4be7869a5ca8f6f4102e802bda1b-zEkDHAWV9acA6ole")
+    BREVO_SENDER_EMAIL: str = os.getenv("BREVO_SENDER_EMAIL", "minilik71@gmail.com")
+    
     # Dashboard URL (for links in emails)
     DASHBOARD_URL: str = "https://smartlink-inventory.up.railway.app"
     
