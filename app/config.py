@@ -33,11 +33,11 @@ class Settings(BaseSettings):
 
     # ==================== EMAIL SETTINGS ====================
     # SMTP Configuration (for email notifications)
-    SMTP_HOST: str = "smtp.gmail.com"
-    SMTP_PORT: int = 587
-    SMTP_USER: str = "minilik71@gmail.com"  # Your Gmail address
-    SMTP_PASSWORD: str = "uvcg bdnm spto hahf"  # Your App Password (16 characters)
-    SMTP_FROM_EMAIL: str = "noreply@inventory.com"
+    SMTP_HOST: str = "mail.mellainnovation.com"
+    SMTP_PORT: int = 465
+    SMTP_USER: str = "info@mellainnovation.com"  # Your Gmail address
+    SMTP_PASSWORD: str = "mella_mail"  # Your App Password (16 characters)
+    SMTP_FROM_EMAIL: str = "info@mellainnovation.com"
     
     
     
