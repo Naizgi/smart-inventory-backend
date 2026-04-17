@@ -143,10 +143,9 @@ class AuthService:
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
-        """Send OTP to email using SMTP only"""
+        """Send OTP to email using SMTP"""
         print(f"[DEV] OTP for {email}: {otp}")
         
-        # Only use SMTP - no Brevo, no Resend
         if settings.SMTP_HOST and settings.SMTP_USER:
             try:
                 msg = MIMEMultipart()
@@ -174,10 +173,16 @@ class AuthService:
                 
                 msg.attach(MIMEText(html_body, 'html'))
                 
-                with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                    server.starttls()
-                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
+                # Use SSL for port 465, TLS for port 587
+                if int(settings.SMTP_PORT) == 465:
+                    with smtplib.SMTP_SSL(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                        server.send_message(msg)
+                else:
+                    with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                        server.starttls()
+                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                        server.send_message(msg)
                 
                 print(f"✅ Email sent via SMTP to {email}")
                 return True
@@ -377,7 +382,7 @@ class AuthService:
 class EmailService:
     @staticmethod
     def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
-        """Send email using SMTP only"""
+        """Send email using SMTP"""
         
         if not settings.SMTP_HOST or not settings.SMTP_USER:
             print(f"[DEV] Would send email to {to_emails}: {subject}")
@@ -392,10 +397,16 @@ class EmailService:
             html_body = EmailService._render_template(template_name, context or {})
             msg.attach(MIMEText(html_body, 'html'))
             
-            with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                server.starttls()
-                server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                server.send_message(msg)
+            # Use SSL for port 465, TLS for port 587
+            if int(settings.SMTP_PORT) == 465:
+                with smtplib.SMTP_SSL(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
+            else:
+                with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
+                    server.starttls()
+                    server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
+                    server.send_message(msg)
             
             print(f"✅ Email sent via SMTP to {to_emails}: {subject}")
             return True
