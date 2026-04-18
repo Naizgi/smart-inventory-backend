@@ -992,15 +992,25 @@ def get_sales(
     for sale in sales:
         items = db.query(SaleItem).filter(SaleItem.sale_id == sale.id).all()
         
+        # FIXED: Complete bank account details with all required fields
         bank_account_details = None
         if sale.bank_account_id:
             bank_account = db.query(BankAccount).filter(BankAccount.id == sale.bank_account_id).first()
             if bank_account:
+                bank_branch = db.query(Branch).filter(Branch.id == bank_account.branch_id).first()
                 bank_account_details = {
                     "id": bank_account.id,
+                    "branch_id": bank_account.branch_id,
+                    "branch_name": bank_branch.name if bank_branch else None,
                     "bank_name": bank_account.bank_name,
                     "account_number": bank_account.account_number,
-                    "account_name": bank_account.account_name
+                    "account_name": bank_account.account_name,
+                    "account_type": bank_account.account_type,
+                    "currency": bank_account.currency,
+                    "is_active": bank_account.is_active,
+                    "notes": bank_account.notes,
+                    "created_at": bank_account.created_at,
+                    "updated_at": bank_account.updated_at
                 }
         
         result.append({
@@ -1049,6 +1059,7 @@ def get_sales(
     
     return result
 
+
 @router.get("/{sale_id}", response_model=SaleResponse)
 def get_sale(
     sale_id: int,
@@ -1069,15 +1080,25 @@ def get_sale(
     
     items = db.query(SaleItem).filter(SaleItem.sale_id == sale.id).all()
     
+    # FIXED: Complete bank account details with all required fields
     bank_account_details = None
     if sale.bank_account_id:
         bank_account = db.query(BankAccount).filter(BankAccount.id == sale.bank_account_id).first()
         if bank_account:
+            bank_branch = db.query(Branch).filter(Branch.id == bank_account.branch_id).first()
             bank_account_details = {
                 "id": bank_account.id,
+                "branch_id": bank_account.branch_id,
+                "branch_name": bank_branch.name if bank_branch else None,
                 "bank_name": bank_account.bank_name,
                 "account_number": bank_account.account_number,
-                "account_name": bank_account.account_name
+                "account_name": bank_account.account_name,
+                "account_type": bank_account.account_type,
+                "currency": bank_account.currency,
+                "is_active": bank_account.is_active,
+                "notes": bank_account.notes,
+                "created_at": bank_account.created_at,
+                "updated_at": bank_account.updated_at
             }
     
     return {
@@ -1123,7 +1144,7 @@ def get_sale(
             for item in items
         ]
     }
-
+    
 @router.put("/{sale_id}", response_model=SaleResponse)
 def update_sale(
     sale_id: int,
