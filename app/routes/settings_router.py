@@ -214,3 +214,33 @@ def export_all_data(
         return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
+    # Add this to your settings.py or create a new route file
+@router.get("/bank-accounts/public")
+def get_public_bank_accounts(
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)  # Allow both admin and salesman
+):
+    """Get bank accounts for POS transactions (accessible by all authenticated users)"""
+    try:
+        # Get bank accounts from general settings
+        settings = SettingsService.get_category_settings(db, "general")
+        
+        bank_accounts = []
+        if settings.get("bank_accounts"):
+            if isinstance(settings["bank_accounts"], list):
+                bank_accounts = settings["bank_accounts"]
+            elif isinstance(settings["bank_accounts"], str):
+                import json
+                try:
+                    bank_accounts = json.loads(settings["bank_accounts"])
+                except:
+                    bank_accounts = []
+        
+        # Return only active bank accounts
+        active_accounts = [acc for acc in bank_accounts if acc.get("is_active", True)]
+        
+        return active_accounts
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
