@@ -5,6 +5,7 @@ from app.database import get_db
 from app.services import SettingsService
 from app.utils.dependencies import require_admin
 from app.models import User
+from app.utils.dependencies import require_admin, get_current_user 
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/settings", tags=["Settings"])
