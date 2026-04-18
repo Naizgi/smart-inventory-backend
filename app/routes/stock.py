@@ -70,6 +70,7 @@ def get_branch_stock(
         print(f"Error in get_branch_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
 # GET - Get my branch stock (handle both with and without trailing slash)
 @router.get("", response_model=List[StockResponse])   # No slash - /api/stock
 @router.get("/", response_model=List[StockResponse])  # With slash - /api/stock/
@@ -123,10 +124,10 @@ def get_my_branch_stock(
         print(f"Error in get_my_branch_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# POST - Add stock (Modified to allow both admin and sales)
-# POST - Add stock (Modified to allow both admin and sales)
-@router.post("/{branch_id}/{product_id}/add")   # No trailing slash
-@router.post("/{branch_id}/{product_id}/add/")  # With trailing slash
+
+# POST - Add stock
+@router.post("/{branch_id}/{product_id}/add")
+@router.post("/{branch_id}/{product_id}/add/")
 def add_stock(
     branch_id: int,
     product_id: int,
@@ -181,14 +182,14 @@ def add_stock(
             Stock.product_id == product_id
         ).first()
         
-        from decimal import Decimal
-        
         if stock:
             old_quantity = float(stock.quantity)
-            # Convert Decimal to float for addition, then back to Decimal for storage
-            stock.quantity = Decimal(str(float(stock.quantity) + quantity))
-            print(f"Updated existing stock: {old_quantity} -> {float(stock.quantity)}")
+            new_quantity = float(stock.quantity) + quantity
+            stock.quantity = Decimal(str(new_quantity))
+            print(f"Updated existing stock: {old_quantity} -> {new_quantity}")
         else:
+            old_quantity = 0
+            new_quantity = quantity
             stock = Stock(
                 branch_id=branch_id,
                 product_id=product_id,
@@ -198,13 +199,14 @@ def add_stock(
             db.add(stock)
             print(f"Created new stock record with quantity: {quantity}")
         
-        # Record stock movement
+        # Record stock movement with new_quantity
         stock_movement = StockMovement(
             branch_id=branch_id,
             product_id=product_id,
             user_id=current_user.id,
             change_qty=Decimal(str(quantity)),
-            movement_type="purchase",
+            new_quantity=Decimal(str(new_quantity)),
+            movement_type="add",
             notes=notes or f"Stock added by {current_user.name} (Role: {current_user.role})"
         )
         db.add(stock_movement)
@@ -223,8 +225,8 @@ def add_stock(
             "product_name": product.name,
             "branch_id": branch_id,
             "branch_name": branch.name,
-            "old_quantity": float(old_quantity) if 'old_quantity' in locals() else 0,
-            "new_quantity": float(stock.quantity),
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity,
             "added_by": current_user.name,
             "role": current_user.role
         }
@@ -241,14 +243,15 @@ def add_stock(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to add stock: {str(e)}")
-    
-# POST - Initialize branch stock (Modified to allow both admin and sales with restrictions)
-@router.post("/initialize/{branch_id}")   # No trailing slash
-@router.post("/initialize/{branch_id}/")  # With trailing slash
+
+
+# POST - Initialize branch stock
+@router.post("/initialize/{branch_id}")
+@router.post("/initialize/{branch_id}/")
 def initialize_branch_stock(
     branch_id: int,
     db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)  # Changed from require_admin to get_current_user
+    current_user = Depends(get_current_user)
 ):
     """Initialize stock for all products in a branch
     
@@ -312,13 +315,14 @@ def initialize_branch_stock(
         print(f"Error in initialize_branch_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# Optional: Add a new endpoint for adjusting stock (if needed)
-@router.put("/adjust/{branch_id}/{product_id}")
+
+# PUT - Adjust stock to a specific quantity
+@router.put("/{branch_id}/{product_id}")
 def adjust_stock(
     branch_id: int,
     product_id: int,
-    new_quantity: float = Query(..., ge=0),
-    notes: Optional[str] = Query(None),
+    quantity: float = Query(..., ge=0),
+    reason: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
@@ -329,6 +333,14 @@ def adjust_stock(
     """
     
     try:
+        print(f"=== ADJUST STOCK DEBUG ===")
+        print(f"Branch ID: {branch_id}")
+        print(f"Product ID: {product_id}")
+        print(f"New Quantity: {quantity}")
+        print(f"Reason: {reason}")
+        print(f"Current User ID: {current_user.id}")
+        print(f"Current User Role: {current_user.role}")
+        
         # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
@@ -356,19 +368,23 @@ def adjust_stock(
             raise HTTPException(status_code=404, detail="Stock record not found")
         
         # Calculate change
-        quantity_change = new_quantity - stock.quantity
+        old_quantity = float(stock.quantity)
+        quantity_change = quantity - old_quantity
         
         # Update stock
-        stock.quantity = new_quantity
+        stock.quantity = Decimal(str(quantity))
+        new_quantity = float(stock.quantity)
         
-        # Record stock movement
+        # Record stock movement with new_quantity and reason
         stock_movement = StockMovement(
             branch_id=branch_id,
             product_id=product_id,
             user_id=current_user.id,
-            change_qty=quantity_change,
+            change_qty=Decimal(str(quantity_change)),
+            new_quantity=Decimal(str(new_quantity)),
             movement_type="adjustment",
-            notes=notes or f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
+            reason=reason,
+            notes=f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
         )
         db.add(stock_movement)
         
@@ -377,25 +393,31 @@ def adjust_stock(
         
         return {
             "success": True,
-            "message": f"Adjusted {product.name} stock to {new_quantity} units",
+            "message": f"Adjusted {product.name} stock to {quantity} units",
             "product_id": product_id,
+            "product_name": product.name,
             "branch_id": branch_id,
-            "old_quantity": float(stock.quantity - quantity_change),
-            "new_quantity": float(stock.quantity),
-            "change": float(quantity_change),
+            "branch_name": branch.name,
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity,
+            "change": quantity_change,
+            "reason": reason,
             "adjusted_by": current_user.name,
             "role": current_user.role
         }
         
     except HTTPException:
+        db.rollback()
         raise
     except Exception as e:
         db.rollback()
         print(f"Error in adjust_stock: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-    
-    
-    # GET - Stock history for a product
+
+
+# GET - Stock history for a product
 @router.get("/{branch_id}/history/{product_id}")
 def get_stock_history(
     branch_id: int,
@@ -411,6 +433,12 @@ def get_stock_history(
     """
     
     try:
+        print(f"=== STOCK HISTORY DEBUG ===")
+        print(f"Branch ID: {branch_id}")
+        print(f"Product ID: {product_id}")
+        print(f"Limit: {limit}")
+        print(f"Current User Role: {current_user.role}")
+        
         # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
@@ -434,6 +462,8 @@ def get_stock_history(
             StockMovement.product_id == product_id
         ).order_by(StockMovement.created_at.desc()).limit(limit).all()
         
+        print(f"Found {len(movements)} movement records")
+        
         result = []
         for movement in movements:
             # Get user name if available
@@ -443,15 +473,24 @@ def get_stock_history(
                 if user:
                     user_name = user.name
             
+            # Determine movement type for display
+            movement_type_display = movement.movement_type
+            if movement_type_display == "add":
+                movement_type_display = "add"
+            elif movement_type_display == "adjustment":
+                movement_type_display = "adjust"
+            elif movement_type_display == "purchase":
+                movement_type_display = "add"
+            
             result.append({
                 "id": movement.id,
                 "branch_id": movement.branch_id,
                 "product_id": movement.product_id,
                 "user_id": movement.user_id,
                 "user_name": user_name,
-                "change_qty": float(movement.change_qty),
-                "movement_type": movement.movement_type,
-                "new_quantity": float(movement.new_quantity) if hasattr(movement, 'new_quantity') else None,
+                "quantity_change": float(movement.change_qty),
+                "new_quantity": float(movement.new_quantity) if movement.new_quantity is not None else None,
+                "type": movement_type_display,
                 "reason": movement.reason if hasattr(movement, 'reason') else None,
                 "notes": movement.notes,
                 "created_at": movement.created_at.isoformat() if movement.created_at else None
@@ -463,4 +502,6 @@ def get_stock_history(
         raise
     except Exception as e:
         print(f"Error in get_stock_history: {str(e)}")
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
