@@ -114,7 +114,7 @@ def get_my_branch_stock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# POST - Add stock
+# POST - Add stock (without new_quantity)
 @router.post("/{branch_id}/{product_id}/add")
 @router.post("/{branch_id}/{product_id}/add/")
 def add_stock(
@@ -128,24 +128,20 @@ def add_stock(
     """Add stock to a branch"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Check if product exists
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Permission check
         if current_user.role == "salesman":
             if not current_user.branch_id:
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to add stock to this branch")
         
-        # Get or create stock record
         stock = db.query(Stock).filter(
             Stock.branch_id == branch_id,
             Stock.product_id == product_id
@@ -166,13 +162,12 @@ def add_stock(
             )
             db.add(stock)
         
-        # Record stock movement
+        # Record stock movement WITHOUT new_quantity
         stock_movement = StockMovement(
             branch_id=branch_id,
             product_id=product_id,
             user_id=current_user.id,
             change_qty=Decimal(str(quantity)),
-            new_quantity=Decimal(str(new_quantity)),
             movement_type="add",
             notes=notes or f"Stock added by {current_user.name} (Role: {current_user.role})"
         )
@@ -203,7 +198,7 @@ def add_stock(
         raise HTTPException(status_code=500, detail=f"Failed to add stock: {str(e)}")
 
 
-# PUT - Adjust stock to a specific quantity
+# PUT - Adjust stock (without new_quantity and reason)
 @router.put("/{branch_id}/{product_id}")
 def adjust_stock(
     branch_id: int,
@@ -216,24 +211,20 @@ def adjust_stock(
     """Adjust stock to a specific quantity"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Check if product exists
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Permission check
         if current_user.role == "salesman":
             if not current_user.branch_id:
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to adjust stock for this branch")
         
-        # Get stock record
         stock = db.query(Stock).filter(
             Stock.branch_id == branch_id,
             Stock.product_id == product_id
@@ -242,24 +233,24 @@ def adjust_stock(
         if not stock:
             raise HTTPException(status_code=404, detail="Stock record not found")
         
-        # Calculate change
         old_quantity = float(stock.quantity)
         quantity_change = quantity - old_quantity
         
-        # Update stock
         stock.quantity = Decimal(str(quantity))
         new_quantity = float(stock.quantity)
         
-        # Record stock movement
+        # Record stock movement WITHOUT new_quantity and reason (store reason in notes)
+        notes_text = f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
+        if reason:
+            notes_text = f"Reason: {reason} | {notes_text}"
+        
         stock_movement = StockMovement(
             branch_id=branch_id,
             product_id=product_id,
             user_id=current_user.id,
             change_qty=Decimal(str(quantity_change)),
-            new_quantity=Decimal(str(new_quantity)),
             movement_type="adjustment",
-            reason=reason,
-            notes=f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
+            notes=notes_text
         )
         db.add(stock_movement)
         
@@ -354,7 +345,7 @@ def initialize_branch_stock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# GET - Stock history for a product
+# GET - Stock history for a product (without new_quantity)
 @router.get("/{branch_id}/history/{product_id}")
 def get_stock_history(
     branch_id: int,
@@ -366,44 +357,56 @@ def get_stock_history(
     """Get stock movement history for a specific product in a branch"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Check if product exists
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
         
-        # Permission check
         if current_user.role == "salesman":
             if not current_user.branch_id:
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to view history for this branch")
         
-        # Get stock movements for this branch and product
-        movements = db.query(StockMovement).filter(
+        # Get stock movements (only select columns that exist)
+        movements = db.query(
+            StockMovement.id,
+            StockMovement.branch_id,
+            StockMovement.product_id,
+            StockMovement.user_id,
+            StockMovement.change_qty,
+            StockMovement.movement_type,
+            StockMovement.notes,
+            StockMovement.created_at
+        ).filter(
             StockMovement.branch_id == branch_id,
             StockMovement.product_id == product_id
         ).order_by(StockMovement.created_at.desc()).limit(limit).all()
         
         result = []
         for movement in movements:
-            # Get user name
             user_name = None
             if movement.user_id:
                 user = db.query(User).filter(User.id == movement.user_id).first()
                 if user:
                     user_name = user.name
             
-            # Determine movement type for frontend
             movement_type_display = movement.movement_type
             if movement_type_display in ["add", "purchase"]:
                 movement_type_display = "add"
             elif movement_type_display == "adjustment":
                 movement_type_display = "adjust"
+            
+            # Try to extract reason from notes
+            reason = None
+            if movement.notes and "Reason:" in movement.notes:
+                import re
+                match = re.search(r'Reason:\s*(.*?)\s*\|', movement.notes)
+                if match:
+                    reason = match.group(1).strip()
             
             result.append({
                 "id": movement.id,
@@ -412,9 +415,8 @@ def get_stock_history(
                 "user_id": movement.user_id,
                 "user_name": user_name,
                 "quantity_change": float(movement.change_qty),
-                "new_quantity": float(movement.new_quantity) if movement.new_quantity is not None else None,
                 "type": movement_type_display,
-                "reason": movement.reason,
+                "reason": reason,
                 "notes": movement.notes,
                 "created_at": movement.created_at.isoformat() if movement.created_at else None
             })
