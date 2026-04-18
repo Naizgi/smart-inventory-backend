@@ -392,7 +392,6 @@ def create_refund(
                     detail=f"Cannot refund {refund_item.quantity} of item {sale_item.id}. Max refundable: {max_refundable}"
                 )
             
-            # FIX: Convert both to Decimal for multiplication
             refund_amount = Decimal(str(refund_item.quantity)) * Decimal(str(sale_item.unit_price))
             total_refund_amount += refund_amount
             
@@ -485,15 +484,25 @@ def create_refund(
                 "reason": item["reason"]
             })
         
+        # FIXED: Complete bank account details with all required fields
         bank_account_details = None
         if refund.bank_account_id:
             bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
             if bank_account:
+                bank_branch = db.query(Branch).filter(Branch.id == bank_account.branch_id).first()
                 bank_account_details = {
                     "id": bank_account.id,
+                    "branch_id": bank_account.branch_id,
+                    "branch_name": bank_branch.name if bank_branch else None,
                     "bank_name": bank_account.bank_name,
                     "account_number": bank_account.account_number,
-                    "account_name": bank_account.account_name
+                    "account_name": bank_account.account_name,
+                    "account_type": bank_account.account_type,
+                    "currency": bank_account.currency,
+                    "is_active": bank_account.is_active,
+                    "notes": bank_account.notes,
+                    "created_at": bank_account.created_at,
+                    "updated_at": bank_account.updated_at
                 }
         
         print(f"Refund created successfully! Refund: {refund_number}, Amount: {float(total_refund_amount)}")
@@ -531,7 +540,7 @@ def create_refund(
         print(f"Error creating refund: {str(e)}")
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-    
+        
 @router.get("/refunds", response_model=List[RefundResponse])
 def get_refunds(
     branch_id: Optional[int] = None,
@@ -583,15 +592,25 @@ def get_refunds(
                 "reason": item.reason
             })
         
+        # FIXED: Complete bank account details with all required fields
         bank_account_details = None
         if refund.bank_account_id:
             bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
             if bank_account:
+                bank_branch = db.query(Branch).filter(Branch.id == bank_account.branch_id).first()
                 bank_account_details = {
                     "id": bank_account.id,
+                    "branch_id": bank_account.branch_id,
+                    "branch_name": bank_branch.name if bank_branch else None,
                     "bank_name": bank_account.bank_name,
                     "account_number": bank_account.account_number,
-                    "account_name": bank_account.account_name
+                    "account_name": bank_account.account_name,
+                    "account_type": bank_account.account_type,
+                    "currency": bank_account.currency,
+                    "is_active": bank_account.is_active,
+                    "notes": bank_account.notes,
+                    "created_at": bank_account.created_at,
+                    "updated_at": bank_account.updated_at
                 }
         
         result.append({
@@ -657,15 +676,25 @@ def get_refund(
             "reason": item.reason
         })
     
+    # FIXED: Complete bank account details with all required fields
     bank_account_details = None
     if refund.bank_account_id:
         bank_account = db.query(BankAccount).filter(BankAccount.id == refund.bank_account_id).first()
         if bank_account:
+            bank_branch = db.query(Branch).filter(Branch.id == bank_account.branch_id).first()
             bank_account_details = {
                 "id": bank_account.id,
+                "branch_id": bank_account.branch_id,
+                "branch_name": bank_branch.name if bank_branch else None,
                 "bank_name": bank_account.bank_name,
                 "account_number": bank_account.account_number,
-                "account_name": bank_account.account_name
+                "account_name": bank_account.account_name,
+                "account_type": bank_account.account_type,
+                "currency": bank_account.currency,
+                "is_active": bank_account.is_active,
+                "notes": bank_account.notes,
+                "created_at": bank_account.created_at,
+                "updated_at": bank_account.updated_at
             }
     
     return {
@@ -692,7 +721,7 @@ def get_refund(
         "notes": refund.notes,
         "items": response_items
     }
-
+    
 # ==================== SALE OPERATIONS ====================
 
 @router.post("", response_model=SaleResponse, status_code=status.HTTP_201_CREATED)
