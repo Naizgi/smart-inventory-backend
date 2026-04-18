@@ -459,6 +459,7 @@ class LoanSummary(Base):
 
 
 # ==================== STOCK MOVEMENT MODEL ====================
+# ==================== STOCK MOVEMENT MODEL ====================
 class StockMovement(Base):
     __tablename__ = "stock_movements"
     
@@ -467,7 +468,9 @@ class StockMovement(Base):
     product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     change_qty = Column(DECIMAL(12, 2), nullable=False)
+    new_quantity = Column(DECIMAL(12, 2), nullable=True)  # ← ADD THIS LINE
     movement_type = Column(String(50), nullable=False)  # sale, purchase, adjustment, transfer_in, transfer_out, loan, refund
+    reason = Column(Text, nullable=True)  # ← ADD THIS LINE (for adjustments)
     reference_id = Column(Integer)  # Can reference sale_id, purchase_id, loan_id, refund_id, etc.
     notes = Column(Text)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -476,8 +479,6 @@ class StockMovement(Base):
     branch = relationship("Branch", back_populates="stock_movements")
     product = relationship("Product", back_populates="stock_movements")
     user = relationship("User", back_populates="stock_movements")
-
-
 # ==================== ALERT MODEL ====================
 class Alert(Base):
     __tablename__ = "alerts"

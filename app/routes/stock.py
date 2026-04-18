@@ -1,17 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional
-from datetime import datetime
 from decimal import Decimal
 
 from app.database import get_db
 from app.models import User, Stock, Product, Branch, StockMovement
 from app.schemas import StockResponse
-from app.utils.dependencies import require_admin, get_current_user
+from app.utils.dependencies import get_current_user
 
 router = APIRouter(prefix="/api/stock", tags=["Stock"])
 
-# GET by branch ID - no change needed (has slash before ID)
+# GET by branch ID
 @router.get("/{branch_id}")
 def get_branch_stock(
     branch_id: int,
@@ -19,19 +18,16 @@ def get_branch_stock(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Get stock for a specific branch (Admin can view any branch, Salesman can view their own branch)"""
+    """Get stock for a specific branch"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Permission check: Admin can view any branch, Salesman can only view their own branch
         if current_user.role == "salesman" and current_user.branch_id != branch_id:
             raise HTTPException(status_code=403, detail="Not authorized to view this branch")
         
-        # Get all stock items for this branch
         stocks = db.query(Stock).filter(Stock.branch_id == branch_id).all()
         
         result = []
@@ -40,7 +36,6 @@ def get_branch_stock(
             if not product:
                 continue
             
-            # Determine status
             if stock.quantity <= 0:
                 status = "out_of_stock"
             elif stock.quantity <= stock.reorder_level:
@@ -48,11 +43,9 @@ def get_branch_stock(
             else:
                 status = "normal"
             
-            # Apply low stock filter
             if low_stock and status != "low":
                 continue
             
-            # Return the correct format expected by StockResponse schema
             result.append({
                 "product_id": product.id,
                 "product_name": product.name,
@@ -71,22 +64,20 @@ def get_branch_stock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# GET - Get my branch stock (handle both with and without trailing slash)
-@router.get("", response_model=List[StockResponse])   # No slash - /api/stock
-@router.get("/", response_model=List[StockResponse])  # With slash - /api/stock/
+# GET - Get my branch stock
+@router.get("", response_model=List[StockResponse])
+@router.get("/", response_model=List[StockResponse])
 def get_my_branch_stock(
     low_stock: bool = Query(False),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Get stock for the current user's branch (for salesman)"""
+    """Get stock for the current user's branch"""
     
     try:
-        # User must have a branch assigned
         if not current_user.branch_id:
             raise HTTPException(status_code=400, detail="User not assigned to a branch")
         
-        # Get all stock items for the user's branch
         stocks = db.query(Stock).filter(Stock.branch_id == current_user.branch_id).all()
         
         result = []
@@ -95,7 +86,6 @@ def get_my_branch_stock(
             if not product:
                 continue
             
-            # Determine status
             if stock.quantity <= 0:
                 status = "out_of_stock"
             elif stock.quantity <= stock.reorder_level:
@@ -103,7 +93,6 @@ def get_my_branch_stock(
             else:
                 status = "normal"
             
-            # Apply low stock filter
             if low_stock and status != "low":
                 continue
             
@@ -136,45 +125,25 @@ def add_stock(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Add stock to a branch
-    
-    - Admin: Can add stock to any branch
-    - Salesman: Can only add stock to their own branch
-    """
+    """Add stock to a branch"""
     
     try:
-        print(f"=== ADD STOCK DEBUG ===")
-        print(f"Branch ID: {branch_id}")
-        print(f"Product ID: {product_id}")
-        print(f"Quantity: {quantity}")
-        print(f"Notes: {notes}")
-        print(f"Current User ID: {current_user.id}")
-        print(f"Current User Role: {current_user.role}")
-        print(f"Current User Branch ID: {current_user.branch_id}")
-        
         # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
-            print(f"Branch {branch_id} not found")
             raise HTTPException(status_code=404, detail="Branch not found")
-        
-        print(f"Branch found: {branch.name}")
         
         # Check if product exists
         product = db.query(Product).filter(Product.id == product_id).first()
         if not product:
-            print(f"Product {product_id} not found")
             raise HTTPException(status_code=404, detail="Product not found")
         
-        print(f"Product found: {product.name}")
-        
-        # Permission check: Salesman can only add stock to their own branch
+        # Permission check
         if current_user.role == "salesman":
             if not current_user.branch_id:
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to add stock to this branch")
-            print("Salesman permission check passed")
         
         # Get or create stock record
         stock = db.query(Stock).filter(
@@ -186,7 +155,6 @@ def add_stock(
             old_quantity = float(stock.quantity)
             new_quantity = float(stock.quantity) + quantity
             stock.quantity = Decimal(str(new_quantity))
-            print(f"Updated existing stock: {old_quantity} -> {new_quantity}")
         else:
             old_quantity = 0
             new_quantity = quantity
@@ -197,9 +165,8 @@ def add_stock(
                 reorder_level=10
             )
             db.add(stock)
-            print(f"Created new stock record with quantity: {quantity}")
         
-        # Record stock movement with new_quantity
+        # Record stock movement
         stock_movement = StockMovement(
             branch_id=branch_id,
             product_id=product_id,
@@ -210,15 +177,11 @@ def add_stock(
             notes=notes or f"Stock added by {current_user.name} (Role: {current_user.role})"
         )
         db.add(stock_movement)
-        print(f"Created stock movement record")
         
-        # Commit the transaction
         db.commit()
-        print("Database commit successful")
-        
         db.refresh(stock)
         
-        response_data = {
+        return {
             "success": True,
             "message": f"Added {quantity} units of {product.name}",
             "product_id": product_id,
@@ -231,18 +194,100 @@ def add_stock(
             "role": current_user.role
         }
         
-        print(f"Response: {response_data}")
-        return response_data
-        
     except HTTPException:
         db.rollback()
         raise
     except Exception as e:
         db.rollback()
         print(f"ERROR in add_stock: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Failed to add stock: {str(e)}")
+
+
+# PUT - Adjust stock to a specific quantity
+@router.put("/{branch_id}/{product_id}")
+def adjust_stock(
+    branch_id: int,
+    product_id: int,
+    quantity: float = Query(..., ge=0),
+    reason: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Adjust stock to a specific quantity"""
+    
+    try:
+        # Check if branch exists
+        branch = db.query(Branch).filter(Branch.id == branch_id).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+        
+        # Check if product exists
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Permission check
+        if current_user.role == "salesman":
+            if not current_user.branch_id:
+                raise HTTPException(status_code=400, detail="User not assigned to a branch")
+            if current_user.branch_id != branch_id:
+                raise HTTPException(status_code=403, detail="Not authorized to adjust stock for this branch")
+        
+        # Get stock record
+        stock = db.query(Stock).filter(
+            Stock.branch_id == branch_id,
+            Stock.product_id == product_id
+        ).first()
+        
+        if not stock:
+            raise HTTPException(status_code=404, detail="Stock record not found")
+        
+        # Calculate change
+        old_quantity = float(stock.quantity)
+        quantity_change = quantity - old_quantity
+        
+        # Update stock
+        stock.quantity = Decimal(str(quantity))
+        new_quantity = float(stock.quantity)
+        
+        # Record stock movement
+        stock_movement = StockMovement(
+            branch_id=branch_id,
+            product_id=product_id,
+            user_id=current_user.id,
+            change_qty=Decimal(str(quantity_change)),
+            new_quantity=Decimal(str(new_quantity)),
+            movement_type="adjustment",
+            reason=reason,
+            notes=f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
+        )
+        db.add(stock_movement)
+        
+        db.commit()
+        db.refresh(stock)
+        
+        return {
+            "success": True,
+            "message": f"Adjusted {product.name} stock to {quantity} units",
+            "product_id": product_id,
+            "product_name": product.name,
+            "branch_id": branch_id,
+            "branch_name": branch.name,
+            "old_quantity": old_quantity,
+            "new_quantity": new_quantity,
+            "change": quantity_change,
+            "reason": reason,
+            "adjusted_by": current_user.name,
+            "role": current_user.role
+        }
+        
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        print(f"Error in adjust_stock: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # POST - Initialize branch stock
@@ -253,26 +298,19 @@ def initialize_branch_stock(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Initialize stock for all products in a branch
-    
-    - Admin: Can initialize stock for any branch
-    - Salesman: Can only initialize stock for their own branch (if branch has no stock)
-    """
+    """Initialize stock for all products in a branch"""
     
     try:
-        # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
             raise HTTPException(status_code=404, detail="Branch not found")
         
-        # Permission check: Salesman can only initialize their own branch
         if current_user.role == "salesman":
             if not current_user.branch_id:
                 raise HTTPException(status_code=400, detail="User not assigned to a branch")
             if current_user.branch_id != branch_id:
                 raise HTTPException(status_code=403, detail="Not authorized to initialize stock for this branch")
         
-        # Get all active products
         products = db.query(Product).filter(Product.active == True).all()
         
         created_count = 0
@@ -316,107 +354,6 @@ def initialize_branch_stock(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# PUT - Adjust stock to a specific quantity
-@router.put("/{branch_id}/{product_id}")
-def adjust_stock(
-    branch_id: int,
-    product_id: int,
-    quantity: float = Query(..., ge=0),
-    reason: Optional[str] = Query(None),
-    db: Session = Depends(get_db),
-    current_user = Depends(get_current_user)
-):
-    """Adjust stock to a specific quantity
-    
-    - Admin: Can adjust stock for any branch
-    - Salesman: Can only adjust stock for their own branch
-    """
-    
-    try:
-        print(f"=== ADJUST STOCK DEBUG ===")
-        print(f"Branch ID: {branch_id}")
-        print(f"Product ID: {product_id}")
-        print(f"New Quantity: {quantity}")
-        print(f"Reason: {reason}")
-        print(f"Current User ID: {current_user.id}")
-        print(f"Current User Role: {current_user.role}")
-        
-        # Check if branch exists
-        branch = db.query(Branch).filter(Branch.id == branch_id).first()
-        if not branch:
-            raise HTTPException(status_code=404, detail="Branch not found")
-        
-        # Check if product exists
-        product = db.query(Product).filter(Product.id == product_id).first()
-        if not product:
-            raise HTTPException(status_code=404, detail="Product not found")
-        
-        # Permission check
-        if current_user.role == "salesman":
-            if not current_user.branch_id:
-                raise HTTPException(status_code=400, detail="User not assigned to a branch")
-            if current_user.branch_id != branch_id:
-                raise HTTPException(status_code=403, detail="Not authorized to adjust stock for this branch")
-        
-        # Get stock record
-        stock = db.query(Stock).filter(
-            Stock.branch_id == branch_id,
-            Stock.product_id == product_id
-        ).first()
-        
-        if not stock:
-            raise HTTPException(status_code=404, detail="Stock record not found")
-        
-        # Calculate change
-        old_quantity = float(stock.quantity)
-        quantity_change = quantity - old_quantity
-        
-        # Update stock
-        stock.quantity = Decimal(str(quantity))
-        new_quantity = float(stock.quantity)
-        
-        # Record stock movement with new_quantity and reason
-        stock_movement = StockMovement(
-            branch_id=branch_id,
-            product_id=product_id,
-            user_id=current_user.id,
-            change_qty=Decimal(str(quantity_change)),
-            new_quantity=Decimal(str(new_quantity)),
-            movement_type="adjustment",
-            reason=reason,
-            notes=f"Stock adjusted by {current_user.name} (Role: {current_user.role})"
-        )
-        db.add(stock_movement)
-        
-        db.commit()
-        db.refresh(stock)
-        
-        return {
-            "success": True,
-            "message": f"Adjusted {product.name} stock to {quantity} units",
-            "product_id": product_id,
-            "product_name": product.name,
-            "branch_id": branch_id,
-            "branch_name": branch.name,
-            "old_quantity": old_quantity,
-            "new_quantity": new_quantity,
-            "change": quantity_change,
-            "reason": reason,
-            "adjusted_by": current_user.name,
-            "role": current_user.role
-        }
-        
-    except HTTPException:
-        db.rollback()
-        raise
-    except Exception as e:
-        db.rollback()
-        print(f"Error in adjust_stock: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=str(e))
-
-
 # GET - Stock history for a product
 @router.get("/{branch_id}/history/{product_id}")
 def get_stock_history(
@@ -426,19 +363,9 @@ def get_stock_history(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user)
 ):
-    """Get stock movement history for a specific product in a branch
-    
-    - Admin: Can view history for any branch
-    - Salesman: Can only view history for their own branch
-    """
+    """Get stock movement history for a specific product in a branch"""
     
     try:
-        print(f"=== STOCK HISTORY DEBUG ===")
-        print(f"Branch ID: {branch_id}")
-        print(f"Product ID: {product_id}")
-        print(f"Limit: {limit}")
-        print(f"Current User Role: {current_user.role}")
-        
         # Check if branch exists
         branch = db.query(Branch).filter(Branch.id == branch_id).first()
         if not branch:
@@ -462,25 +389,21 @@ def get_stock_history(
             StockMovement.product_id == product_id
         ).order_by(StockMovement.created_at.desc()).limit(limit).all()
         
-        print(f"Found {len(movements)} movement records")
-        
         result = []
         for movement in movements:
-            # Get user name if available
+            # Get user name
             user_name = None
             if movement.user_id:
                 user = db.query(User).filter(User.id == movement.user_id).first()
                 if user:
                     user_name = user.name
             
-            # Determine movement type for display
+            # Determine movement type for frontend
             movement_type_display = movement.movement_type
-            if movement_type_display == "add":
+            if movement_type_display in ["add", "purchase"]:
                 movement_type_display = "add"
             elif movement_type_display == "adjustment":
                 movement_type_display = "adjust"
-            elif movement_type_display == "purchase":
-                movement_type_display = "add"
             
             result.append({
                 "id": movement.id,
@@ -491,7 +414,7 @@ def get_stock_history(
                 "quantity_change": float(movement.change_qty),
                 "new_quantity": float(movement.new_quantity) if movement.new_quantity is not None else None,
                 "type": movement_type_display,
-                "reason": movement.reason if hasattr(movement, 'reason') else None,
+                "reason": movement.reason,
                 "notes": movement.notes,
                 "created_at": movement.created_at.isoformat() if movement.created_at else None
             })
@@ -502,6 +425,4 @@ def get_stock_history(
         raise
     except Exception as e:
         print(f"Error in get_stock_history: {str(e)}")
-        import traceback
-        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
