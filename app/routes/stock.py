@@ -393,3 +393,74 @@ def adjust_stock(
         db.rollback()
         print(f"Error in adjust_stock: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
+    # GET - Stock history for a product
+@router.get("/{branch_id}/history/{product_id}")
+def get_stock_history(
+    branch_id: int,
+    product_id: int,
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user)
+):
+    """Get stock movement history for a specific product in a branch
+    
+    - Admin: Can view history for any branch
+    - Salesman: Can only view history for their own branch
+    """
+    
+    try:
+        # Check if branch exists
+        branch = db.query(Branch).filter(Branch.id == branch_id).first()
+        if not branch:
+            raise HTTPException(status_code=404, detail="Branch not found")
+        
+        # Check if product exists
+        product = db.query(Product).filter(Product.id == product_id).first()
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Permission check
+        if current_user.role == "salesman":
+            if not current_user.branch_id:
+                raise HTTPException(status_code=400, detail="User not assigned to a branch")
+            if current_user.branch_id != branch_id:
+                raise HTTPException(status_code=403, detail="Not authorized to view history for this branch")
+        
+        # Get stock movements for this branch and product
+        movements = db.query(StockMovement).filter(
+            StockMovement.branch_id == branch_id,
+            StockMovement.product_id == product_id
+        ).order_by(StockMovement.created_at.desc()).limit(limit).all()
+        
+        result = []
+        for movement in movements:
+            # Get user name if available
+            user_name = None
+            if movement.user_id:
+                user = db.query(User).filter(User.id == movement.user_id).first()
+                if user:
+                    user_name = user.name
+            
+            result.append({
+                "id": movement.id,
+                "branch_id": movement.branch_id,
+                "product_id": movement.product_id,
+                "user_id": movement.user_id,
+                "user_name": user_name,
+                "change_qty": float(movement.change_qty),
+                "movement_type": movement.movement_type,
+                "new_quantity": float(movement.new_quantity) if hasattr(movement, 'new_quantity') else None,
+                "reason": movement.reason if hasattr(movement, 'reason') else None,
+                "notes": movement.notes,
+                "created_at": movement.created_at.isoformat() if movement.created_at else None
+            })
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error in get_stock_history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

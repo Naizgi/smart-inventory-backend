@@ -401,12 +401,12 @@ class EmailService:
             if int(settings.SMTP_PORT) == 465:
                 with smtplib.SMTP_SSL(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
+                    server.send_message(msg,to_addrs=to_emails,from_addr=settings.SMTP_FROM_EMAIL)
             else:
                 with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
                     server.starttls()
                     server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                    server.send_message(msg)
+                    server.send_message(msg,to_addrs=to_emails,from_addr=settings.SMTP_FROM_EMAIL)
             
             print(f"✅ Email sent via SMTP to {to_emails}: {subject}")
             return True
