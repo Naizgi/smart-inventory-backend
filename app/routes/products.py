@@ -37,19 +37,47 @@ def get_product(
 
 # ✏️ WRITE operations - Admin only
 # POST - Create product (handle both with and without trailing slash)
-@router.post("", response_model=Product, status_code=status.HTTP_201_CREATED)   # No slash - /api/products
-@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)  # With slash - /api/products/
+@router.post("", response_model=Product, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=Product, status_code=status.HTTP_201_CREATED)
 def create_product(
     product: ProductCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)  # Kept as admin only
+    current_user: User = Depends(require_admin)
 ):
     """Create a new product (Admin only)"""
     try:
-        return ProductService.create_product(db, product)
+        # Create the product
+        new_product = ProductService.create_product(db, product)
+        
+        # Get all branches and create stock records
+        from app.models import Branch, Stock  # Import here to avoid circular imports
+        
+        branches = db.query(Branch).all()
+        for branch in branches:
+            # Check if stock already exists (optional, but good practice)
+            existing_stock = db.query(Stock).filter(
+                Stock.branch_id == branch.id,
+                Stock.product_id == new_product.id
+            ).first()
+            
+            if not existing_stock:
+                stock_record = Stock(
+                    branch_id=branch.id,
+                    product_id=new_product.id,
+                    quantity=0,
+                    reorder_level=10  # Default reorder level
+                )
+                db.add(stock_record)
+        
+        db.commit()
+        return new_product
+        
     except ValueError as e:
+        db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
-
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create product: {str(e)}")
 # PUT by ID - no change needed
 @router.put("/{product_id}", response_model=Product)
 def update_product(
