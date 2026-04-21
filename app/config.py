@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # App
-    APP_NAME: str = "Inventory Management System"
+    APP_NAME: str = "IRailway Inventory"
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
 
