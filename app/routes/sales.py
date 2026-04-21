@@ -8,6 +8,7 @@ import random
 import string
 
 from app.database import get_db
+from app.config import settings
 from app.models import (
     User, Sale, SaleItem, Product, Stock, StockMovement, Branch, 
     BankAccount, Refund, RefundItem, SystemSetting
@@ -20,6 +21,7 @@ from app.schemas import (
     BankAccountUpdate
 )
 from app.utils.dependencies import get_current_user, require_admin
+from app.services import EmailService, AuthService
 
 router = APIRouter(prefix="/api/sales", tags=["Sales"])
 
@@ -933,6 +935,42 @@ def create_sale(
                 }
         
         print(f"Sale created successfully! Invoice: {invoice_number}, Total: {float(total_amount)}")
+        
+        # ==================== SEND EMAIL NOTIFICATION ====================
+        try:
+            print("🔵 [SALE ROUTER] Attempting to send email notification...")
+            
+            # Get all admin emails from database
+            admin_emails = AuthService.get_all_admin_emails(db)
+            print(f"🔵 [SALE ROUTER] Admin emails found: {admin_emails}")
+            
+            if admin_emails and settings.EMAIL_ENABLED:
+                sale_data_for_email = {
+                    "sale_id": sale.id,
+                    "customer_name": sale.customer_name or "Walk-in Customer",
+                    "total_amount": float(sale.total_amount),
+                    "item_count": len(sale_items),
+                    "salesman_name": current_user.name,
+                    "branch_name": branch.name,
+                    "created_at": sale.created_at.strftime("%Y-%m-%d %H:%M:%S") if sale.created_at else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+                
+                print(f"🔵 [SALE ROUTER] Sale data for email: {sale_data_for_email}")
+                
+                # Send email notification to all admins
+                result = EmailService.send_sale_notification(admin_emails, sale_data_for_email)
+                if result:
+                    print(f"✅✅✅ Sale notification email sent to {len(admin_emails)} admins")
+                else:
+                    print(f"❌❌❌ Failed to send sale notification email - check Brevo configuration")
+            else:
+                print(f"⚠️ No admin emails found or email disabled. Admin emails: {admin_emails}, EMAIL_ENABLED: {settings.EMAIL_ENABLED}")
+                
+        except Exception as email_error:
+            print(f"❌❌❌ Exception in sale notification: {str(email_error)}")
+            import traceback
+            traceback.print_exc()
+        # ==================== END EMAIL NOTIFICATION ====================
         
         return {
             "id": sale.id,
