@@ -19,12 +19,9 @@ import bcrypt
 import secrets
 import random
 import string
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from pathlib import Path
 
-# Try to import Brevo
+# Brevo (Sendinblue) imports
 try:
     import brevo_python
     from brevo_python.rest import ApiException
@@ -152,17 +149,17 @@ class AuthService:
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
-        """Send OTP to email using Brevo or SMTP fallback"""
+        """Send OTP to email using Brevo"""
         print(f"[DEV] OTP for {email}: {otp}")
         
-        # Try Brevo first if available
-        if BREVO_AVAILABLE and settings.BREVO_API_KEY and settings.EMAIL_ENABLED:
+        # Use Brevo if available and configured
+        if BREVO_AVAILABLE and settings.BREVO_API_KEY:
             try:
                 configuration = brevo_python.Configuration()
                 configuration.api_key['api-key'] = settings.BREVO_API_KEY
                 api_instance = brevo_python.TransactionalEmailsApi(brevo_python.ApiClient(configuration))
                 
-                subject = "Password Reset OTP - SmartLink Inventory System"
+                subject = "Password Reset OTP - Inventory System"
                 sender = {"name": settings.BREVO_SENDER_NAME, "email": settings.BREVO_SENDER_EMAIL}
                 
                 html_content = f'''
@@ -250,8 +247,8 @@ class AuthService:
                             </div>
                         </div>
                         <div class="footer">
-                            <p>SmartLink Inventory System - Secure Password Recovery</p>
-                            <p>&copy; 2024 SmartLink. All rights reserved.</p>
+                            <p>Inventory System - Secure Password Recovery</p>
+                            <p>&copy; 2024 Inventory System. All rights reserved.</p>
                         </div>
                     </div>
                 </body>
@@ -266,57 +263,16 @@ class AuthService:
                 )
                 
                 api_response = api_instance.send_transac_email(send_smtp_email)
-                print(f"✅ OTP email sent via Brevo to {email} - Response: {api_response.message_id}")
+                print(f"✅ OTP email sent via Brevo to {email} - Response: {api_response}")
                 return True
                 
             except Exception as e:
                 print(f"❌ Brevo email failed: {e}")
-                # Fall through to SMTP
-        
-        # Fallback to SMTP
-        if settings.SMTP_HOST and settings.SMTP_USER:
-            try:
-                msg = MIMEMultipart()
-                msg['From'] = settings.SMTP_FROM_EMAIL
-                msg['To'] = email
-                msg['Subject'] = "Password Reset OTP - SmartLink Inventory System"
-                
-                html_body = f'''
-                <html>
-                <body style="font-family: Arial, sans-serif;">
-                    <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <h2 style="color: #2FB8A6;">Password Reset Request</h2>
-                        <p>You requested to reset your password. Use the following OTP to proceed:</p>
-                        <div style="background-color: #f4f4f4; padding: 15px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; margin: 20px 0;">
-                            {otp}
-                        </div>
-                        <p>This OTP is valid for <strong>10 minutes</strong>.</p>
-                        <p>If you didn't request this, please ignore this email.</p>
-                        <hr>
-                        <p style="color: #666; font-size: 12px;">SmartLink Inventory System - Secure Password Recovery</p>
-                    </div>
-                </body>
-                </html>
-                '''
-                
-                msg.attach(MIMEText(html_body, 'html'))
-                
-                if int(settings.SMTP_PORT) == 465:
-                    with smtplib.SMTP_SSL(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                        server.send_message(msg)
-                else:
-                    with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                        server.starttls()
-                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                        server.send_message(msg)
-                
-                print(f"✅ OTP email sent via SMTP to {email}")
-                return True
-            except Exception as e:
-                print(f"❌ SMTP email failed: {e}")
-        
-        return False
+                # Fallback to print for development
+                return False
+        else:
+            print(f"📧 [DEV MODE] OTP for {email}: {otp}")
+            return True
     
     @staticmethod
     def request_password_reset(db: Session, email: str) -> Dict[str, Any]:
@@ -505,301 +461,578 @@ class AuthService:
             del password_reset_tokens[token]
 
 
-# ==================== EMAIL SERVICE (BREVO + FALLBACK) ====================
+# ==================== EMAIL SERVICE (BREVO) ====================
 class EmailService:
     @staticmethod
-    def send_email(to_emails: List[str], subject: str, html_content: str) -> bool:
-        """Send email using Brevo API with SMTP fallback"""
+    def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
+        """Send email using Brevo API"""
+        
+        if not BREVO_AVAILABLE or not settings.BREVO_API_KEY:
+            print(f"[DEV] Would send email to {to_emails}: {subject}")
+            return False
         
         if not settings.EMAIL_ENABLED:
             print(f"[DEV] Email disabled. Would send to {to_emails}: {subject}")
             return False
         
-        # Try Brevo first
-        if BREVO_AVAILABLE and settings.BREVO_API_KEY:
-            try:
-                configuration = brevo_python.Configuration()
-                configuration.api_key['api-key'] = settings.BREVO_API_KEY
-                api_instance = brevo_python.TransactionalEmailsApi(brevo_python.ApiClient(configuration))
-                
-                sender = {"name": settings.BREVO_SENDER_NAME, "email": settings.BREVO_SENDER_EMAIL}
-                recipients = [{"email": email} for email in to_emails]
-                
-                send_smtp_email = brevo_python.SendSmtpEmail(
-                    to=recipients,
-                    sender=sender,
-                    subject=subject,
-                    html_content=html_content
-                )
-                
-                api_response = api_instance.send_transac_email(send_smtp_email)
-                print(f"✅ Email sent via Brevo to {to_emails}: {subject} - Message ID: {api_response.message_id}")
-                return True
-                
-            except Exception as e:
-                print(f"❌ Brevo email failed: {str(e)}")
-                # Fall through to SMTP
+        try:
+            configuration = brevo_python.Configuration()
+            configuration.api_key['api-key'] = settings.BREVO_API_KEY
+            api_instance = brevo_python.TransactionalEmailsApi(brevo_python.ApiClient(configuration))
+            
+            sender = {"name": settings.BREVO_SENDER_NAME, "email": settings.BREVO_SENDER_EMAIL}
+            recipients = [{"email": email} for email in to_emails]
+            
+            html_content = EmailService._render_template(template_name, context or {})
+            
+            send_smtp_email = brevo_python.SendSmtpEmail(
+                to=recipients,
+                sender=sender,
+                subject=subject,
+                html_content=html_content
+            )
+            
+            api_response = api_instance.send_transac_email(send_smtp_email)
+            print(f"✅ Email sent via Brevo to {to_emails}: {subject} - Message ID: {api_response.message_id}")
+            return True
+            
+        except Exception as e:
+            print(f"❌ Brevo email failed: {str(e)}")
+            return False
+    
+    @staticmethod
+    def _render_template(template_name: str, context: dict) -> str:
+        """Render email template with proper HTML styling"""
         
-        # Fallback to SMTP
-        if settings.SMTP_HOST and settings.SMTP_USER:
-            try:
-                msg = MIMEMultipart()
-                msg['From'] = settings.SMTP_FROM_EMAIL
-                msg['To'] = ', '.join(to_emails)
-                msg['Subject'] = subject
-                msg.attach(MIMEText(html_content, 'html'))
-                
-                if int(settings.SMTP_PORT) == 465:
-                    with smtplib.SMTP_SSL(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                        server.send_message(msg)
-                else:
-                    with smtplib.SMTP(settings.SMTP_HOST, int(settings.SMTP_PORT)) as server:
-                        server.starttls()
-                        server.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                        server.send_message(msg)
-                
-                print(f"✅ Email sent via SMTP to {to_emails}: {subject}")
-                return True
-            except Exception as e:
-                print(f"❌ SMTP email failed: {str(e)}")
+        # Sale notification template
+        if template_name == "sale_notification.html":
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>New Sale Alert</title>
+                <style>
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f4f4f4;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 20px auto;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+                        color: white;
+                        padding: 30px;
+                        text-align: center;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        font-size: 24px;
+                    }}
+                    .content {{
+                        padding: 30px;
+                    }}
+                    .sale-detail {{
+                        background: #f8f9fa;
+                        padding: 15px;
+                        margin: 10px 0;
+                        border-radius: 5px;
+                        border-left: 4px solid #28a745;
+                    }}
+                    .label {{
+                        font-weight: bold;
+                        color: #495057;
+                        display: inline-block;
+                        width: 120px;
+                    }}
+                    .value {{
+                        color: #212529;
+                    }}
+                    .total {{
+                        font-size: 20px;
+                        font-weight: bold;
+                        color: #28a745;
+                        text-align: right;
+                        margin-top: 20px;
+                        padding-top: 10px;
+                        border-top: 2px solid #dee2e6;
+                    }}
+                    .footer {{
+                        background: #f8f9fa;
+                        padding: 20px;
+                        text-align: center;
+                        font-size: 12px;
+                        color: #6c757d;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🛍️ New Sale Alert!</h1>
+                    </div>
+                    <div class="content">
+                        <div class="sale-detail">
+                            <span class="label">Sale ID:</span>
+                            <span class="value">#{context.get('sale_id', 'N/A')}</span>
+                        </div>
+                        <div class="sale-detail">
+                            <span class="label">Customer:</span>
+                            <span class="value">{context.get('customer_name', 'Walk-in Customer')}</span>
+                        </div>
+                        <div class="sale-detail">
+                            <span class="label">Items Sold:</span>
+                            <span class="value">{context.get('item_count', 0)}</span>
+                        </div>
+                        <div class="sale-detail">
+                            <span class="label">Sold By:</span>
+                            <span class="value">{context.get('salesman_name', 'Unknown')}</span>
+                        </div>
+                        <div class="sale-detail">
+                            <span class="label">Branch:</span>
+                            <span class="value">{context.get('branch_name', 'Unknown')}</span>
+                        </div>
+                        <div class="sale-detail">
+                            <span class="label">Time:</span>
+                            <span class="value">{context.get('created_at', 'N/A')}</span>
+                        </div>
+                        <div class="total">
+                            Total Amount: ${context.get('total_amount', '0.00')}
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>This is an automated notification from your Inventory System</p>
+                        <p>&copy; 2024 Inventory System. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
         
-        return False
+        # Low stock alert template
+        elif template_name == "low_stock.html":
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Low Stock Alert</title>
+                <style>
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f4f4f4;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 20px auto;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #ff9800 0%, #e65100 100%);
+                        color: white;
+                        padding: 30px;
+                        text-align: center;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        font-size: 24px;
+                    }}
+                    .content {{
+                        padding: 30px;
+                    }}
+                    .alert-detail {{
+                        background: #fff3e0;
+                        padding: 15px;
+                        margin: 10px 0;
+                        border-radius: 5px;
+                        border-left: 4px solid #ff9800;
+                    }}
+                    .label {{
+                        font-weight: bold;
+                        color: #495057;
+                        display: inline-block;
+                        width: 120px;
+                    }}
+                    .value {{
+                        color: #212529;
+                    }}
+                    .warning {{
+                        background: #ffeaa7;
+                        padding: 15px;
+                        margin: 20px 0;
+                        border-radius: 5px;
+                        text-align: center;
+                        color: #d63031;
+                        font-weight: bold;
+                    }}
+                    .footer {{
+                        background: #f8f9fa;
+                        padding: 20px;
+                        text-align: center;
+                        font-size: 12px;
+                        color: #6c757d;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>⚠️ Low Stock Alert</h1>
+                    </div>
+                    <div class="content">
+                        <div class="alert-detail">
+                            <span class="label">Product:</span>
+                            <span class="value"><strong>{context.get('product_name', 'N/A')}</strong></span>
+                        </div>
+                        <div class="alert-detail">
+                            <span class="label">SKU:</span>
+                            <span class="value">{context.get('product_sku', 'N/A')}</span>
+                        </div>
+                        <div class="alert-detail">
+                            <span class="label">Branch:</span>
+                            <span class="value">{context.get('branch_name', 'N/A')}</span>
+                        </div>
+                        <div class="alert-detail">
+                            <span class="label">Current Stock:</span>
+                            <span class="value"><strong style="color: #ff9800;">{context.get('current_stock', 0)} units</strong></span>
+                        </div>
+                        <div class="alert-detail">
+                            <span class="label">Reorder Level:</span>
+                            <span class="value">{context.get('reorder_level', 0)} units</span>
+                        </div>
+                        <div class="warning">
+                            ⚠️ Please reorder this product as soon as possible!
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>Inventory System - Automated Alert</p>
+                        <p>&copy; 2024 Inventory System. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+        
+        # Daily report template
+        elif template_name == "daily_report.html":
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <title>Daily Sales Report</title>
+                <style>
+                    body {{
+                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                        margin: 0;
+                        padding: 0;
+                        background-color: #f4f4f4;
+                    }}
+                    .container {{
+                        max-width: 600px;
+                        margin: 20px auto;
+                        background: white;
+                        border-radius: 8px;
+                        overflow: hidden;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                    }}
+                    .header {{
+                        background: linear-gradient(135deg, #2FB8A6 0%, #259e8e 100%);
+                        color: white;
+                        padding: 30px;
+                        text-align: center;
+                    }}
+                    .header h1 {{
+                        margin: 0;
+                        font-size: 24px;
+                    }}
+                    .content {{
+                        padding: 30px;
+                    }}
+                    .summary {{
+                        background: #e8f5e9;
+                        padding: 20px;
+                        border-radius: 8px;
+                        margin: 20px 0;
+                    }}
+                    .summary-item {{
+                        margin: 10px 0;
+                        font-size: 16px;
+                    }}
+                    .summary-label {{
+                        font-weight: bold;
+                    }}
+                    .summary-value {{
+                        color: #2e7d32;
+                        font-size: 20px;
+                        font-weight: bold;
+                    }}
+                    .footer {{
+                        background: #f8f9fa;
+                        padding: 20px;
+                        text-align: center;
+                        font-size: 12px;
+                        color: #6c757d;
+                    }}
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>📊 Daily Sales Report</h1>
+                        <p>{context.get('date', 'N/A')}</p>
+                    </div>
+                    <div class="content">
+                        <div class="summary">
+                            <div class="summary-item">
+                                <span class="summary-label">Total Sales:</span>
+                                <span class="summary-value">{context.get('total_sales', 0)}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Gross Revenue:</span>
+                                <span class="summary-value">${context.get('total_revenue', 0):,.2f}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Refunds:</span>
+                                <span class="summary-value">${context.get('total_refunds', 0):,.2f}</span>
+                            </div>
+                            <div class="summary-item">
+                                <span class="summary-label">Net Revenue:</span>
+                                <span class="summary-value">${context.get('net_revenue', 0):,.2f}</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>Inventory System - Daily Report</p>
+                        <p>&copy; 2024 Inventory System. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """
+        
+        # Default template
+        else:
+            return f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <title>{context.get('subject', 'Notification')}</title>
+            </head>
+            <body>
+                <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+                    <h2 style="color: #2FB8A6;">{context.get('subject', 'Notification')}</h2>
+                    <p>{context.get('message', 'Email content')}</p>
+                    <hr>
+                    <p style="font-size: 12px; color: #666;">Inventory System - Automated Message</p>
+                </div>
+            </body>
+            </html>
+            """
     
     @staticmethod
     def send_sale_notification(to_emails: List[str], sale_data: dict) -> bool:
-        """Send sale notification email"""
-        
-        html_content = f'''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>New Sale Alert</title>
-            <style>
-                body {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                    background-color: #f4f4f4;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 20px auto;
-                    background: white;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
-                    color: white;
-                    padding: 30px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 24px;
-                }}
-                .content {{
-                    padding: 30px;
-                }}
-                .sale-detail {{
-                    background: #f8f9fa;
-                    padding: 15px;
-                    margin: 10px 0;
-                    border-radius: 5px;
-                    border-left: 4px solid #28a745;
-                }}
-                .label {{
-                    font-weight: bold;
-                    color: #495057;
-                    display: inline-block;
-                    width: 120px;
-                }}
-                .value {{
-                    color: #212529;
-                }}
-                .total {{
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: #28a745;
-                    text-align: right;
-                    margin-top: 20px;
-                    padding-top: 10px;
-                    border-top: 2px solid #dee2e6;
-                }}
-                .footer {{
-                    background: #f8f9fa;
-                    padding: 20px;
-                    text-align: center;
-                    font-size: 12px;
-                    color: #6c757d;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>🛍️ New Sale Alert!</h1>
-                </div>
-                <div class="content">
-                    <div class="sale-detail">
-                        <span class="label">Sale ID:</span>
-                        <span class="value">#{sale_data.get('sale_id', 'N/A')}</span>
-                    </div>
-                    <div class="sale-detail">
-                        <span class="label">Customer:</span>
-                        <span class="value">{sale_data.get('customer_name', 'Walk-in Customer')}</span>
-                    </div>
-                    <div class="sale-detail">
-                        <span class="label">Items Sold:</span>
-                        <span class="value">{sale_data.get('item_count', 0)}</span>
-                    </div>
-                    <div class="sale-detail">
-                        <span class="label">Sold By:</span>
-                        <span class="value">{sale_data.get('salesman_name', 'Unknown')}</span>
-                    </div>
-                    <div class="sale-detail">
-                        <span class="label">Branch:</span>
-                        <span class="value">{sale_data.get('branch_name', 'Unknown')}</span>
-                    </div>
-                    <div class="sale-detail">
-                        <span class="label">Time:</span>
-                        <span class="value">{sale_data.get('created_at', 'N/A')}</span>
-                    </div>
-                    <div class="total">
-                        Total Amount: ${sale_data.get('total_amount', '0.00')}
-                    </div>
-                </div>
-                <div class="footer">
-                    <p>This is an automated notification from SmartLink Inventory System</p>
-                    <p>&copy; 2024 SmartLink. All rights reserved.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        '''
-        
+        """Send sale notification email using Brevo"""
+        context = {
+            "sale_id": sale_data.get("sale_id"),
+            "customer_name": sale_data.get("customer_name", "Walk-in Customer"),
+            "total_amount": f"{sale_data.get('total_amount', 0):,.2f}",
+            "item_count": sale_data.get("item_count", 0),
+            "salesman_name": sale_data.get("salesman_name", "Unknown"),
+            "branch_name": sale_data.get("branch_name", "Unknown"),
+            "created_at": sale_data.get("created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        }
         subject = f"🛍️ New Sale Alert - Sale #{sale_data.get('sale_id', 'N/A')}"
-        return EmailService.send_email(to_emails, subject, html_content)
+        return EmailService.send_email(to_emails, subject, "sale_notification.html", context)
     
     @staticmethod
     def send_low_stock_alert(to_emails: List[str], product_name: str, product_sku: str, 
                               current_stock: float, reorder_level: float, branch_name: str):
-        """Send low stock alert email"""
-        
-        html_content = f'''
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>Low Stock Alert</title>
-            <style>
-                body {{
-                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                    margin: 0;
-                    padding: 0;
-                    background-color: #f4f4f4;
-                }}
-                .container {{
-                    max-width: 600px;
-                    margin: 20px auto;
-                    background: white;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-                }}
-                .header {{
-                    background: linear-gradient(135deg, #ff9800 0%, #e65100 100%);
-                    color: white;
-                    padding: 30px;
-                    text-align: center;
-                }}
-                .header h1 {{
-                    margin: 0;
-                    font-size: 24px;
-                }}
-                .content {{
-                    padding: 30px;
-                }}
-                .alert-detail {{
-                    background: #fff3e0;
-                    padding: 15px;
-                    margin: 10px 0;
-                    border-radius: 5px;
-                    border-left: 4px solid #ff9800;
-                }}
-                .label {{
-                    font-weight: bold;
-                    color: #495057;
-                    display: inline-block;
-                    width: 120px;
-                }}
-                .value {{
-                    color: #212529;
-                }}
-                .warning {{
-                    background: #ffeaa7;
-                    padding: 15px;
-                    margin: 20px 0;
-                    border-radius: 5px;
-                    text-align: center;
-                    color: #d63031;
-                    font-weight: bold;
-                }}
-                .footer {{
-                    background: #f8f9fa;
-                    padding: 20px;
-                    text-align: center;
-                    font-size: 12px;
-                    color: #6c757d;
-                }}
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="header">
-                    <h1>⚠️ Low Stock Alert</h1>
-                </div>
-                <div class="content">
-                    <div class="alert-detail">
-                        <span class="label">Product:</span>
-                        <span class="value"><strong>{product_name}</strong></span>
-                    </div>
-                    <div class="alert-detail">
-                        <span class="label">SKU:</span>
-                        <span class="value">{product_sku}</span>
-                    </div>
-                    <div class="alert-detail">
-                        <span class="label">Branch:</span>
-                        <span class="value">{branch_name}</span>
-                    </div>
-                    <div class="alert-detail">
-                        <span class="label">Current Stock:</span>
-                        <span class="value"><strong style="color: #ff9800;">{current_stock} units</strong></span>
-                    </div>
-                    <div class="alert-detail">
-                        <span class="label">Reorder Level:</span>
-                        <span class="value">{reorder_level} units</span>
-                    </div>
-                    <div class="warning">
-                        ⚠️ Please reorder this product as soon as possible!
-                    </div>
-                </div>
-                <div class="footer">
-                    <p>SmartLink Inventory System - Automated Alert</p>
-                    <p>&copy; 2024 SmartLink. All rights reserved.</p>
-                </div>
-            </div>
-        </body>
-        </html>
-        '''
-        
+        """Send low stock alert email using Brevo"""
+        context = {
+            "product_name": product_name,
+            "product_sku": product_sku,
+            "current_stock": current_stock,
+            "reorder_level": reorder_level,
+            "branch_name": branch_name,
+            "date": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
         subject = f"⚠️ Low Stock Alert: {product_name}"
-        return EmailService.send_email(to_emails, subject, html_content)
+        return EmailService.send_email(to_emails, subject, "low_stock.html", context)
+    
+    @staticmethod
+    def send_daily_report(to_emails: List[str], report_data: dict):
+        """Send daily sales report using Brevo"""
+        context = {
+            "date": report_data.get("date", datetime.now().strftime("%Y-%m-%d")),
+            "total_sales": report_data.get("total_sales", 0),
+            "total_revenue": report_data.get("total_revenue", 0),
+            "total_refunds": report_data.get("total_refunds", 0),
+            "net_revenue": report_data.get("net_revenue", 0),
+            "top_products": report_data.get("top_products", []),
+            "low_stock_items": report_data.get("low_stock_items", [])
+        }
+        subject = f"📊 Daily Report - {context['date']}"
+        return EmailService.send_email(to_emails, subject, "daily_report.html", context)
+
+
+# ==================== EMAIL SCHEDULER SERVICE ====================
+class EmailScheduler:
+    
+    @staticmethod
+    def get_admin_emails(db: Session) -> List[str]:
+        """Get all active admin email addresses from users table"""
+        admin_users = db.query(User).filter(
+            User.role == 'admin',
+            User.active == True
+        ).all()
+        return [user.email for user in admin_users]
+    
+    @staticmethod
+    def check_and_send_low_stock_alerts(db: Session):
+        """Check for low stock and send email alerts to all admins"""
+        try:
+            # Get admin emails directly from users table
+            admin_emails = EmailScheduler.get_admin_emails(db)
+            
+            if not admin_emails:
+                print("No active admin users found")
+                return
+            
+            # Check if low stock email notifications are enabled
+            low_stock_email = SettingsService.get_setting(db, "notification", "low_stock_email")
+            
+            if not low_stock_email:
+                print("Low stock email notifications disabled")
+                return
+            
+            stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).all()
+            
+            for stock in stocks:
+                product = db.query(Product).filter(Product.id == stock.product_id).first()
+                branch = db.query(Branch).filter(Branch.id == stock.branch_id).first()
+                
+                if product and branch:
+                    # Check if alert was already sent today
+                    existing_alert = db.query(Alert).filter(
+                        Alert.product_id == product.id,
+                        Alert.branch_id == branch.id,
+                        Alert.created_at >= datetime.now() - timedelta(days=1),
+                        Alert.message.like("%low stock%")
+                    ).first()
+                    
+                    if not existing_alert:
+                        # Send to all admin emails
+                        EmailService.send_low_stock_alert(
+                            to_emails=admin_emails,
+                            product_name=product.name,
+                            product_sku=product.sku,
+                            current_stock=float(stock.quantity),
+                            reorder_level=float(stock.reorder_level),
+                            branch_name=branch.name
+                        )
+                        
+                        alert = Alert(
+                            branch_id=stock.branch_id,
+                            product_id=stock.product_id,
+                            message=f"Low stock alert sent to admins for {product.name}",
+                            resolved=False
+                        )
+                        db.add(alert)
+                        db.commit()
+        except Exception as e:
+            print(f"Failed to send low stock alerts: {str(e)}")
+    
+    @staticmethod
+    def send_daily_report(db: Session):
+        """Generate and send daily sales report to all admins"""
+        try:
+            # Get admin emails directly from users table
+            admin_emails = EmailScheduler.get_admin_emails(db)
+            
+            if not admin_emails:
+                print("No active admin users found")
+                return
+            
+            # Check if daily report emails are enabled
+            daily_report_email = SettingsService.get_setting(db, "notification", "daily_report_email")
+            
+            if not daily_report_email:
+                print("Daily report email notifications disabled")
+                return
+            
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            tomorrow = today + timedelta(days=1)
+            
+            sales = db.query(Sale).filter(
+                Sale.created_at >= today,
+                Sale.created_at < tomorrow
+            ).all()
+            
+            total_sales = len(sales)
+            total_revenue = sum(float(s.total_amount) for s in sales)
+            total_refunds = sum(float(s.refund_amount) for s in sales) if hasattr(Sale, 'refund_amount') else 0
+            net_revenue = total_revenue - total_refunds
+            
+            # Get top products
+            product_sales = {}
+            for sale in sales:
+                for item in sale.items:
+                    if item.product_id not in product_sales:
+                        product_sales[item.product_id] = {
+                            "name": item.product.name if item.product else "Unknown",
+                            "quantity": 0,
+                            "revenue": 0
+                        }
+                    product_sales[item.product_id]["quantity"] += float(item.quantity)
+                    product_sales[item.product_id]["revenue"] += float(item.line_total)
+            
+            top_products = sorted(product_sales.values(), key=lambda x: x["revenue"], reverse=True)[:5]
+            
+            # Get low stock items
+            low_stock_items = []
+            stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).limit(5).all()
+            for stock in stocks:
+                product = db.query(Product).filter(Product.id == stock.product_id).first()
+                if product:
+                    low_stock_items.append({
+                        "product_name": product.name,
+                        "current_stock": float(stock.quantity),
+                        "reorder_level": float(stock.reorder_level)
+                    })
+            
+            report_data = {
+                "date": today.strftime("%Y-%m-%d"),
+                "total_sales": total_sales,
+                "total_revenue": total_revenue,
+                "total_refunds": total_refunds,
+                "net_revenue": net_revenue,
+                "top_products": top_products,
+                "low_stock_items": low_stock_items
+            }
+            
+            # Send to all admin emails
+            EmailService.send_daily_report(admin_emails, report_data)
+            
+        except Exception as e:
+            print(f"Failed to send daily report: {str(e)}")
 
 
 # ==================== BRANCH SERVICE ====================
@@ -984,14 +1217,12 @@ class StockService:
 class SaleService:
     @staticmethod
     def create_sale(db: Session, sale_data: SaleCreate, user_id: int, branch_id: int) -> Sale:
-        # Check stock availability
         for item in sale_data.items:
             stock = StockService.get_stock(db, branch_id, item.product_id)
             if not stock or stock.quantity < item.quantity:
                 product = db.query(Product).filter(Product.id == item.product_id).first()
                 raise ValueError(f"Insufficient stock for product: {product.name if product else item.product_id}")
         
-        # Calculate totals
         total_amount = 0.0
         total_cost = 0.0
         for item in sale_data.items:
@@ -1000,7 +1231,6 @@ class SaleService:
                 total_amount += item.quantity * item.unit_price
                 total_cost += item.quantity * float(product.cost)
         
-        # Create sale record
         db_sale = Sale(
             branch_id=branch_id,
             user_id=user_id,
@@ -1011,7 +1241,6 @@ class SaleService:
         db.add(db_sale)
         db.flush()
         
-        # Create sale items and deduct stock
         for item in sale_data.items:
             line_total = item.quantity * item.unit_price
             sale_item = SaleItem(
@@ -1030,7 +1259,7 @@ class SaleService:
         db.commit()
         db.refresh(db_sale)
         
-        # Send email notification for new sale
+        # Send email notification for new sale (using Brevo)
         try:
             # Get user who made the sale
             user = db.query(User).filter(User.id == user_id).first()
@@ -1043,14 +1272,14 @@ class SaleService:
                 sale_data_for_email = {
                     "sale_id": db_sale.id,
                     "customer_name": sale_data.customer_name or "Walk-in Customer",
-                    "total_amount": f"{float(total_amount):,.2f}",
+                    "total_amount": float(total_amount),
                     "item_count": len(sale_data.items),
                     "salesman_name": user.name if user else "Unknown",
                     "branch_name": branch.name if branch else "Unknown",
                     "created_at": db_sale.created_at.strftime("%Y-%m-%d %H:%M:%S") if db_sale.created_at else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
                 
-                # Send email notification
+                # Send email in background (you'll need to implement background task)
                 EmailService.send_sale_notification(admin_emails, sale_data_for_email)
                 print(f"✅ Sale notification email sent to {len(admin_emails)} admins")
         except Exception as e:
@@ -1403,7 +1632,7 @@ class SettingsService:
     def initialize_default_settings(db: Session):
         defaults = {
             "general": {
-                "system_name": "SmartLink Inventory System",
+                "system_name": "Inventory System",
                 "timezone": "Africa/Addis_Ababa",
                 "date_format": "YYYY-MM-DD",
                 "currency": "ETB",
@@ -1456,7 +1685,7 @@ class SettingsService:
         return {
             "version": "2.0.0",
             "build_date": "2024-03-15",
-            "database": "MySQL",
+            "database": "PostgreSQL/SQLite",
             "server_status": "online",
             "total_users": total_users,
             "total_products": total_products,
