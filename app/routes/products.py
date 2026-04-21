@@ -97,13 +97,23 @@ def update_product(
 def delete_product(
     product_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_admin)  # Kept as admin only
+    current_user: User = Depends(require_admin)
 ):
-    """Delete product (Admin only)"""
-    success = ProductService.delete_product(db, product_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Product not found")
-    return None
+    """Delete product (Admin only) - Soft delete"""
+    try:
+        # Check if product exists
+        product = ProductService.get_product(db, product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+        
+        # Soft delete - just mark as inactive
+        product.active = False
+        db.commit()
+        return None
+        
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to delete product: {str(e)}")
 
 
 # POST - Initialize stock for all existing products
