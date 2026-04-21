@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 import os
+from typing import Optional
 
 class Settings(BaseSettings):
     # MySQL Database Configuration
@@ -31,27 +32,26 @@ class Settings(BaseSettings):
     APP_VERSION: str = "1.0.0"
     DEBUG: bool = True
 
-    # ==================== EMAIL SETTINGS ====================
-    # SMTP Configuration (for email notifications)
+    # ==================== BREVO EMAIL SETTINGS ====================
+    # Brevo API Configuration (Recommended - 300 free emails/day)
+    BREVO_API_KEY: str = "cc5eb022fa5217c0a179bbc23de8a56a5ecc4be7869a5ca8f6f4102e802bda1b-zEkDHAWV9acA6ole"
+    BREVO_SENDER_EMAIL: str = "minilik71@gmail.com"
+    BREVO_SENDER_NAME: str = "SmartLink Inventory System"
+    EMAIL_ENABLED: bool = True
+    
+    # ==================== FALLBACK SMTP SETTINGS ====================
+    # SMTP Configuration (fallback if Brevo fails)
     SMTP_HOST: str = "mail.mellainnovation.com"
     SMTP_PORT: int = 465
-    SMTP_USER: str = "info@mellainnovation.com"  # Your Gmail address
-    SMTP_PASSWORD: str = "mella_mail"  # Your App Password (16 characters)
+    SMTP_USER: str = "info@mellainnovation.com"
+    SMTP_PASSWORD: str = "mella_mail"
     SMTP_FROM_EMAIL: str = "info@mellainnovation.com"
-    
-    
-    
-        # Resend.com API (Recommended for Railway hobby plan)
-    RESEND_API_KEY: str = "re_fXwCahS3_C8HoFbgi7rXUri8qfmcEvqA5"  # Add this line
-    RESEND_FROM_EMAIL: str = "onboarding@resend.dev"  # Add this line
-    
-    
-    # Add to Settings class
-    BREVO_API_KEY: str = os.getenv("BREVO_API_KEY", "cc5eb022fa5217c0a179bbc23de8a56a5ecc4be7869a5ca8f6f4102e802bda1b-zEkDHAWV9acA6ole")
-    BREVO_SENDER_EMAIL: str = os.getenv("BREVO_SENDER_EMAIL", "minilik71@gmail.com")
     
     # Dashboard URL (for links in emails)
     DASHBOARD_URL: str = "https://smartlink-inventory.up.railway.app"
+    
+    # Frontend URL for password reset
+    FRONTEND_URL: str = "https://smartlink-inventory.up.railway.app"
     
     # Environment
     ENVIRONMENT: str = "development"  # development or production
