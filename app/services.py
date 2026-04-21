@@ -145,12 +145,14 @@ class AuthService:
             User.role == 'admin',
             User.active == True
         ).all()
-        return [user.email for user in admin_users]
+        emails = [user.email for user in admin_users]
+        print(f"🔍 Found admin emails: {emails}")
+        return emails
     
     @staticmethod
     def send_otp_email(email: str, otp: str):
         """Send OTP to email using Brevo"""
-        print(f"[DEV] OTP for {email}: {otp}")
+        print(f"📧 Sending OTP to {email}: {otp}")
         
         # Use Brevo if available and configured
         if BREVO_AVAILABLE and settings.BREVO_API_KEY:
@@ -263,12 +265,11 @@ class AuthService:
                 )
                 
                 api_response = api_instance.send_transac_email(send_smtp_email)
-                print(f"✅ OTP email sent via Brevo to {email} - Response: {api_response}")
+                print(f"✅ OTP email sent via Brevo to {email}")
                 return True
                 
             except Exception as e:
                 print(f"❌ Brevo email failed: {e}")
-                # Fallback to print for development
                 return False
         else:
             print(f"📧 [DEV MODE] OTP for {email}: {otp}")
@@ -467,15 +468,33 @@ class EmailService:
     def send_email(to_emails: List[str], subject: str, template_name: str, context: dict = None) -> bool:
         """Send email using Brevo API"""
         
-        if not BREVO_AVAILABLE or not settings.BREVO_API_KEY:
-            print(f"[DEV] Would send email to {to_emails}: {subject}")
+        # Detailed debug logging
+        print(f"🔵 [EMAIL DEBUG] send_email called")
+        print(f"   - to_emails: {to_emails}")
+        print(f"   - subject: {subject}")
+        print(f"   - template_name: {template_name}")
+        print(f"   - BREVO_AVAILABLE: {BREVO_AVAILABLE}")
+        print(f"   - BREVO_API_KEY: {'SET' if settings.BREVO_API_KEY else 'NOT SET'}")
+        print(f"   - EMAIL_ENABLED: {settings.EMAIL_ENABLED}")
+        
+        if not BREVO_AVAILABLE:
+            print(f"❌ Brevo not available - brevo-python not installed")
+            return False
+        
+        if not settings.BREVO_API_KEY:
+            print(f"❌ BREVO_API_KEY not configured")
             return False
         
         if not settings.EMAIL_ENABLED:
-            print(f"[DEV] Email disabled. Would send to {to_emails}: {subject}")
+            print(f"📧 Email disabled. Would send to {to_emails}: {subject}")
+            return False
+        
+        if not to_emails:
+            print(f"❌ No recipients provided")
             return False
         
         try:
+            print(f"🔵 Attempting to send email via Brevo...")
             configuration = brevo_python.Configuration()
             configuration.api_key['api-key'] = settings.BREVO_API_KEY
             api_instance = brevo_python.TransactionalEmailsApi(brevo_python.ApiClient(configuration))
@@ -493,11 +512,14 @@ class EmailService:
             )
             
             api_response = api_instance.send_transac_email(send_smtp_email)
-            print(f"✅ Email sent via Brevo to {to_emails}: {subject} - Message ID: {api_response.message_id}")
+            print(f"✅ Email sent via Brevo to {to_emails}: {subject}")
+            print(f"   Message ID: {api_response.message_id}")
             return True
             
         except Exception as e:
             print(f"❌ Brevo email failed: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return False
     
     @staticmethod
@@ -606,7 +628,7 @@ class EmailService:
                             <span class="value">{context.get('created_at', 'N/A')}</span>
                         </div>
                         <div class="total">
-                            Total Amount: ${context.get('total_amount', '0.00')}
+                            Total Amount: ETB {context.get('total_amount', '0.00')}
                         </div>
                     </div>
                     <div class="footer">
@@ -806,15 +828,15 @@ class EmailService:
                             </div>
                             <div class="summary-item">
                                 <span class="summary-label">Gross Revenue:</span>
-                                <span class="summary-value">${context.get('total_revenue', 0):,.2f}</span>
+                                <span class="summary-value">ETB {context.get('total_revenue', 0):,.2f}</span>
                             </div>
                             <div class="summary-item">
                                 <span class="summary-label">Refunds:</span>
-                                <span class="summary-value">${context.get('total_refunds', 0):,.2f}</span>
+                                <span class="summary-value">ETB {context.get('total_refunds', 0):,.2f}</span>
                             </div>
                             <div class="summary-item">
                                 <span class="summary-label">Net Revenue:</span>
-                                <span class="summary-value">${context.get('net_revenue', 0):,.2f}</span>
+                                <span class="summary-value">ETB {context.get('net_revenue', 0):,.2f}</span>
                             </div>
                         </div>
                     </div>
@@ -850,6 +872,7 @@ class EmailService:
     @staticmethod
     def send_sale_notification(to_emails: List[str], sale_data: dict) -> bool:
         """Send sale notification email using Brevo"""
+        print(f"🔵 send_sale_notification called with: {to_emails}")
         context = {
             "sale_id": sale_data.get("sale_id"),
             "customer_name": sale_data.get("customer_name", "Walk-in Customer"),
@@ -925,6 +948,12 @@ class EmailScheduler:
             
             stocks = db.query(Stock).filter(Stock.quantity <= Stock.reorder_level).all()
             
+            if not stocks:
+                print("No low stock items found")
+                return
+            
+            print(f"Found {len(stocks)} low stock items. Sending alerts to admins: {admin_emails}")
+            
             for stock in stocks:
                 product = db.query(Product).filter(Product.id == stock.product_id).first()
                 branch = db.query(Branch).filter(Branch.id == stock.branch_id).first()
@@ -957,6 +986,8 @@ class EmailScheduler:
                         )
                         db.add(alert)
                         db.commit()
+                        print(f"✅ Low stock alert sent for {product.name}")
+                        
         except Exception as e:
             print(f"Failed to send low stock alerts: {str(e)}")
     
@@ -1030,6 +1061,7 @@ class EmailScheduler:
             
             # Send to all admin emails
             EmailService.send_daily_report(admin_emails, report_data)
+            print(f"✅ Daily report sent to {len(admin_emails)} admins")
             
         except Exception as e:
             print(f"Failed to send daily report: {str(e)}")
@@ -1265,8 +1297,11 @@ class SaleService:
             user = db.query(User).filter(User.id == user_id).first()
             branch = db.query(Branch).filter(Branch.id == branch_id).first()
             
-            # Get all admin emails
+            # Get all admin emails from database
             admin_emails = AuthService.get_all_admin_emails(db)
+            
+            print(f"🔵 [SALE DEBUG] Admin emails found: {admin_emails}")
+            print(f"🔵 [SALE DEBUG] EMAIL_ENABLED: {settings.EMAIL_ENABLED}")
             
             if admin_emails and settings.EMAIL_ENABLED:
                 sale_data_for_email = {
@@ -1279,11 +1314,21 @@ class SaleService:
                     "created_at": db_sale.created_at.strftime("%Y-%m-%d %H:%M:%S") if db_sale.created_at else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 }
                 
-                # Send email in background (you'll need to implement background task)
-                EmailService.send_sale_notification(admin_emails, sale_data_for_email)
-                print(f"✅ Sale notification email sent to {len(admin_emails)} admins")
+                print(f"🔵 [SALE DEBUG] Sale data for email: {sale_data_for_email}")
+                
+                # Send email notification to all admins
+                result = EmailService.send_sale_notification(admin_emails, sale_data_for_email)
+                if result:
+                    print(f"✅ Sale notification email sent to {len(admin_emails)} admins")
+                else:
+                    print(f"❌ Failed to send sale notification email")
+            else:
+                print(f"⚠️ No admin emails found or email disabled")
+                
         except Exception as e:
-            print(f"❌ Failed to send sale notification email: {str(e)}")
+            print(f"❌ Exception in sale notification: {str(e)}")
+            import traceback
+            traceback.print_exc()
         
         return db_sale
     
